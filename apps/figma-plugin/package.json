@@ -1,0 +1,12 @@
+{
+  "name": "@figma-auto/figma-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit && node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@figma-auto/protocol": "file:../../packages/protocol"
+  }
+}

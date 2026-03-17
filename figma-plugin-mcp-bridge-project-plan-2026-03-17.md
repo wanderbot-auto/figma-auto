@@ -2,6 +2,13 @@
 
 Last updated: 2026-03-17
 
+Status: archived as the original consolidated planning document. Active working docs now live in:
+
+- `docs/architecture.md`
+- `docs/roadmap.md`
+- `docs/dev-readiness.md`
+- `docs/local-dev.md`
+
 ## Goal
 
 Build a private Figma Design plugin that can read and write the current design file, then expose those capabilities to Codex through a local MCP bridge.
@@ -142,7 +149,7 @@ The Figma UI iframe can use browser APIs and can talk to a local bridge if allow
 
 Use:
 
-- `ws://127.0.0.1:4318` for local dev
+- `ws://localhost:4318` for local dev
 - optional remote HTTPS endpoint later if needed
 
 Do not connect the plugin main thread directly to the bridge. Keep all external communication in the UI iframe and forward commands through message passing.
@@ -162,7 +169,7 @@ Start with a Design plugin, not a Dev Mode plugin.
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": ["none"],
-    "devAllowedDomains": ["http://127.0.0.1:4318", "ws://127.0.0.1:4318"]
+    "devAllowedDomains": ["http://localhost:4318", "ws://localhost:4318"]
   }
 }
 ```

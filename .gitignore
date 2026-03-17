@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+logs/*.log
+logs/*.ndjson
+!logs/.gitkeep
