@@ -9,26 +9,10 @@ import type {
   StyleTokenSummary
 } from "@figma-auto/protocol";
 
+import { hasChildren, isSceneNode, requireBaseNode } from "./node-helpers.js";
 import { getVariables } from "./variables.js";
-import { describeNode, summarizeNode } from "./read.js";
+import { describeNodeAsync, summarizeNode } from "./read.js";
 import { loadFontsForNode } from "./write.js";
-
-function hasChildren(node: BaseNode): node is BaseNode & ChildrenMixin {
-  return "children" in node;
-}
-
-function isSceneNode(node: BaseNode): node is SceneNode {
-  return "visible" in node;
-}
-
-async function requireBaseNode(nodeId: string): Promise<BaseNode> {
-  const node = await figma.getNodeByIdAsync(nodeId);
-  if (!node) {
-    throw new Error(`Node ${nodeId} was not found`);
-  }
-
-  return node;
-}
 
 function toSerializable(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value)) as unknown;
@@ -221,7 +205,7 @@ export async function createSpecPage(payload: CreateSpecPagePayload): Promise<Cr
     `File: ${figma.root.name}`,
     `Generated At: ${new Date().toISOString()}`,
     `Source Page: ${figma.currentPage.name} (${figma.currentPage.id})`,
-    payload.sourceNodeId && sourceNode ? `Source Node: ${JSON.stringify(describeNode(sourceNode))}` : null,
+    payload.sourceNodeId && sourceNode ? `Source Node: ${JSON.stringify(await describeNodeAsync(sourceNode))}` : null,
     includeSelection
       ? `Selection: ${JSON.stringify(figma.currentPage.selection.map((node) => summarizeNode(node)))}`
       : null,

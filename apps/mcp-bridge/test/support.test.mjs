@@ -5,6 +5,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { AuditLogger } from "../dist/logging/audit-log.js";
+import { BridgeLogger } from "../dist/logging/bridge-log.js";
+import { validationIssuesToProtocolError } from "../dist/errors.js";
 import { PluginSessionStore } from "../dist/session/plugin-session-store.js";
 
 class FakeSocket {
@@ -45,6 +47,39 @@ test("session store keeps only one active session", () => {
   assert.equal(store.getActive().context.sessionId, "sess_2");
 });
 
+test("session store preserves connectedAt and updates lastSeenAt for the same socket", async () => {
+  const store = new PluginSessionStore();
+  const socket = new FakeSocket("primary");
+
+  store.register({
+    sessionId: "sess_1",
+    protocolVersion: "1.0.0",
+    pluginInstanceId: "plugin_1",
+    fileKey: "file_1",
+    pageId: "1:2",
+    editorType: "figma"
+  }, socket);
+
+  const first = store.getActive();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  store.touchForSocket(socket);
+  store.register({
+    sessionId: "sess_1",
+    protocolVersion: "1.0.0",
+    pluginInstanceId: "plugin_1",
+    fileKey: "file_1",
+    pageId: "1:3",
+    editorType: "figma"
+  }, socket);
+
+  const second = store.getActive();
+
+  assert.equal(second.connectedAt, first.connectedAt);
+  assert.notEqual(second.lastSeenAt, first.lastSeenAt);
+  assert.equal(second.context.pageId, "1:3");
+});
+
 test("audit logger writes NDJSON entries", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "figma-auto-audit-"));
   const filePath = path.join(tempDir, "audit.ndjson");
@@ -66,4 +101,32 @@ test("audit logger writes NDJSON entries", async () => {
 
   assert.equal(parsed.mode, "dry_run");
   assert.equal(parsed.tool, "figma.batch_edit");
+});
+
+test("bridge logger writes readable lifecycle lines", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "figma-auto-bridge-log-"));
+  const filePath = path.join(tempDir, "bridge.log");
+  const logger = new BridgeLogger(filePath);
+
+  await logger.info("session_registered", {
+    sessionId: "sess_1",
+    pageId: "1:2"
+  });
+
+  const content = await fs.readFile(filePath, "utf8");
+  assert.match(content, /INFO session_registered/);
+  assert.match(content, /sessionId="sess_1"/);
+  assert.match(content, /pageId="1:2"/);
+});
+
+test("validation issues map batch op overflow to batch_limit_exceeded", () => {
+  const error = validationIssuesToProtocolError([
+    {
+      code: "too_big",
+      message: "Array must contain at most 10 element(s)",
+      path: ["ops"]
+    }
+  ]);
+
+  assert.equal(error.code, "batch_limit_exceeded");
 });

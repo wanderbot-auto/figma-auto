@@ -47,3 +47,15 @@ export function coerceProtocolError(error: unknown): ProtocolError {
 
   return createProtocolError("internal_error", "Unknown internal error");
 }
+
+export function validationIssuesToProtocolError(
+  issues: Array<{ code?: string; message?: string; path?: Array<string | number> }>
+): ProtocolError {
+  const firstIssue = issues[0];
+  const isBatchOpsTooBig = firstIssue?.code === "too_big" && firstIssue.path?.[0] === "ops";
+
+  return createProtocolError(
+    isBatchOpsTooBig ? "batch_limit_exceeded" : "validation_failed",
+    firstIssue?.message ?? "Input validation failed"
+  );
+}

@@ -1,138 +1,63 @@
 # Local Development
 
-Last updated: 2026-03-17
-
-## Purpose
-
-This document describes the local development workflow for the current scaffold and first implementation slice.
-
-## Expected Tooling
-
-- Figma desktop app
-- one scratch Figma Design file for manual testing
-- Node.js LTS
-- npm
-- TypeScript
-
-## Planned Local Port
-
-Reserve one local bridge port for v1:
-
-- `4318` for the WebSocket bridge during development
-
-Keep the port fixed in early development so the plugin manifest and local docs stay simple.
-
-## Planned Bootstrap Steps
-
-Bootstrap is already complete. The current workspace uses:
+## Main Commands
 
 ```bash
 npm install
-```
-
-Useful commands:
-
-```bash
 npm run build
-npm test
 npm run start:local
-npm run dev:bridge
-npm run paths:local
 ```
 
-Optional environment overrides:
+Fast paths:
 
-```bash
-FIGMA_AUTO_BRIDGE_PORT=4318
-FIGMA_AUTO_BRIDGE_HOST=127.0.0.1
-FIGMA_AUTO_BRIDGE_WS_URL=ws://localhost:4318
-FIGMA_AUTO_BRIDGE_HTTP_URL=http://localhost:4318
-FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL=ws://localhost:4318
-FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL=http://localhost:4318
-FIGMA_AUTO_FIGMA_PLUGIN_ID=your_plugin_id
-```
+- `npm run dev:bridge`
+- `npm run build:bridge`
+- `npm run build:plugin`
+- `npm run paths:local`
+- `npm test`
 
-Command roles:
+## Running Locally
 
-- `npm run start:local` builds the workspace, regenerates `apps/figma-plugin/manifest.json`, starts the bridge, and writes bridge stdout/stderr to `logs/bridge.log`
-- `npm run dev:bridge` starts the already-built bridge without rebuilding, so it assumes the plugin assets and generated manifest already match the chosen bridge port
-- `npm run paths:local` prints the manifest, dist, and log paths used by the local helper
+1. Build the repo.
+2. Import `apps/figma-plugin/manifest.json` as a local plugin in Figma.
+3. Start the plugin in the target file.
+4. Keep the bridge process running.
+5. Verify with `figma.get_session_status`.
 
-## Planned Build Outputs
+## Environment Variables
 
-The first scaffold should produce:
+Bridge runtime:
 
-```text
-apps/figma-plugin/dist/code.js
-apps/figma-plugin/dist/ui.html
-apps/figma-plugin/dist/ui.js
-apps/mcp-bridge/dist/index.js
-apps/figma-plugin/manifest.json
-```
+- `FIGMA_AUTO_BRIDGE_HOST`
+- `FIGMA_AUTO_BRIDGE_PORT`
+- `FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL`
+- `FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL`
+- `FIGMA_AUTO_AUDIT_LOG_PATH`
+- `FIGMA_AUTO_BRIDGE_LOG_PATH`
 
-`apps/figma-plugin/manifest.json` is generated from `apps/figma-plugin/manifest.template.json` during plugin build so that the local bridge port and plugin ID do not have to be hand-edited in multiple places. The same build also injects the chosen bridge port into `apps/figma-plugin/dist/ui.js`.
+Plugin build:
 
-## Planned Figma Import Flow
+- `FIGMA_AUTO_BRIDGE_WS_URL`
+- `FIGMA_AUTO_BRIDGE_HTTP_URL`
+- `FIGMA_AUTO_BRIDGE_PORT`
+- `FIGMA_AUTO_FIGMA_PLUGIN_ID`
 
-1. Open the Figma desktop app
-2. Open any scratch Design file
-3. Right-click the canvas
-4. Go to `Plugins > Development > Import plugin from manifest`
-5. Choose `apps/figma-plugin/manifest.json`
-6. Run the plugin from `Plugins > Development` or the Actions menu
+If you change plugin bridge URL settings, rebuild the plugin bundle.
+For local plugin development, use `localhost` URLs, not `127.0.0.1`.
+Figma rejects `devAllowedDomains` entries like `http://127.0.0.1:4318`, so the generated manifest should use `http://localhost:4318` and `ws://localhost:4318`.
 
-## Planned Daily Run Order
+## Logs
 
-The current expected manual workflow is:
+- bridge stdout: `logs/bridge.log`
+- audit log: `logs/audit.ndjson`
 
-1. run `npm run start:local`
-2. open Figma desktop and the scratch file
-3. run the plugin
-4. confirm the plugin UI shows bridge connection state
-5. execute MCP tools from Codex against the active file
+## Troubleshooting
 
-If you change any bridge URL, host, port, or plugin ID override, rebuild before importing or re-importing the plugin manifest into Figma.
+- `missing_session`
+  Usually means the plugin is not running, could not connect, or was replaced by another plugin session.
 
-## Development Conventions To Lock Early
+- Wrong host or port
+  Rebuild the plugin after changing bridge URL env vars. For local runs, prefer `localhost` over `127.0.0.1`.
 
-- the plugin should only talk to localhost in development
-- the bridge should reject writes when no plugin session is active
-- destructive operations should require explicit confirmation
-- multi-op writes should default to dry-run mode and require `confirm: true` when `dryRun: false`
-- all committed writes should be logged
-
-## Manual Verification Checklist
-
-Use this checklist after the first slice is scaffolded:
-
-- plugin imports successfully from `manifest.json`
-- plugin can connect to the local bridge
-- bridge can report session presence
-- `figma.get_file` returns the active file metadata
-- `figma.get_current_page` returns the current page metadata
-- `figma.get_selection` returns the active selection
-- `figma.get_node` returns a normalized node snapshot
-- `figma.get_node_tree` returns a recursive subtree snapshot
-- `figma.find_nodes` finds nodes within the current page or a target subtree
-- `figma.get_variables` returns local collections and variables
-- `figma.rename_node` changes the selected node name
-- `figma.create_page` creates a new page
-- `figma.create_frame` creates a frame in the active page
-- `figma.create_component` creates a component or converts a node into one
-- `figma.create_text` creates a text node in the active page
-- `figma.move_node` re-parents a node correctly
-- `figma.delete_node` deletes a node only with `confirm: true`
-- `figma.batch_edit` supports dry-run and committed execution
-- `figma.create_variable_collection` creates a variable collection
-- `figma.create_variable` creates a variable with mode values
-- `figma.bind_variable` binds or unbinds a variable on a node
-- `figma.normalize_names` previews and applies normalized layer names
-- `figma.create_spec_page` creates a generated spec page
-- `figma.extract_design_tokens` returns normalized variable/style tokens
-
-## Known Limitations Right Now
-
-- end-to-end verification still depends on importing the plugin into Figma desktop
-- `apps/figma-plugin/manifest.json` still uses a placeholder plugin ID
-- bridge stdout/stderr goes to `logs/bridge.log` and write-audit events go to `logs/audit.ndjson`
-- no automated test currently exercises a live WebSocket session with the plugin runtime
+- Mutating tool fails inside Figma
+  Check `logs/bridge.log`, `logs/audit.ndjson`, and the plugin UI connection state.

@@ -13,6 +13,7 @@ export const bridgeConfig = {
   host,
   port: Number.isNaN(configuredPort) ? BRIDGE_PORT : configuredPort,
   workspaceRoot,
+  bridgeLogPath: process.env.FIGMA_AUTO_BRIDGE_LOG_PATH ?? path.join(workspaceRoot, "logs", "bridge.log"),
   auditLogPath: process.env.FIGMA_AUTO_AUDIT_LOG_PATH ?? path.join(workspaceRoot, "logs", "audit.ndjson"),
   publicWsUrl,
   publicHttpUrl

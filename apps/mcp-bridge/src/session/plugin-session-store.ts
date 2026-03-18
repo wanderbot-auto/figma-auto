@@ -7,20 +7,28 @@ export interface ActivePluginSession {
   context: SessionRegistrationPayload;
   socket: WebSocket;
   connectedAt: string;
+  lastSeenAt: string;
 }
 
 export class PluginSessionStore {
   private activeSession: ActivePluginSession | null = null;
 
   register(context: SessionRegistrationPayload, socket: WebSocket): ActivePluginSession {
+    const timestamp = new Date().toISOString();
     if (this.activeSession && this.activeSession.socket !== socket) {
       this.activeSession.socket.close();
     }
 
+    const connectedAt =
+      this.activeSession && this.activeSession.socket === socket
+        ? this.activeSession.connectedAt
+        : timestamp;
+
     this.activeSession = {
       context,
       socket,
-      connectedAt: new Date().toISOString()
+      connectedAt,
+      lastSeenAt: timestamp
     };
 
     return this.activeSession;
@@ -41,6 +49,15 @@ export class PluginSessionStore {
   clearForSocket(socket: WebSocket): void {
     if (this.activeSession?.socket === socket) {
       this.activeSession = null;
+    }
+  }
+
+  touchForSocket(socket: WebSocket): void {
+    if (this.activeSession?.socket === socket) {
+      this.activeSession = {
+        ...this.activeSession,
+        lastSeenAt: new Date().toISOString()
+      };
     }
   }
 }

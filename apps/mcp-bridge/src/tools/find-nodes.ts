@@ -6,7 +6,12 @@ function summarizeFindNodesTarget(input: FindNodesPayload): string {
   const filters = [
     input.nameExact ? `name=${input.nameExact}` : null,
     input.nameContains ? `name~=${input.nameContains}` : null,
-    input.type ? `type=${input.type}` : null
+    input.textContains ? `text~=${input.textContains}` : null,
+    input.type ? `type=${input.type}` : null,
+    input.styleId ? `style=${input.styleId}` : null,
+    input.variableId ? `variable=${input.variableId}` : null,
+    input.componentId ? `component=${input.componentId}` : null,
+    input.instanceOnly ? "instanceOnly=true" : null
   ].filter(Boolean);
 
   return `${input.nodeId ? `within ${input.nodeId}` : "within current page"} (${filters.join(", ")})`;

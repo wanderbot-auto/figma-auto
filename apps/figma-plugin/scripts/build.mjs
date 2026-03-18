@@ -56,6 +56,14 @@ function isLocalBridgeUrl(rawUrl) {
   return ["localhost", "127.0.0.1"].includes(url.hostname);
 }
 
+function canonicalizeLocalUrl(rawUrl) {
+  const url = new URL(rawUrl);
+  if (isLocalBridgeUrl(rawUrl)) {
+    url.hostname = "localhost";
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 function resolvePluginId() {
   return process.env.FIGMA_AUTO_FIGMA_PLUGIN_ID ?? "REPLACE_WITH_FIGMA_PLUGIN_ID";
 }
@@ -64,7 +72,7 @@ await fs.mkdir(distDir, { recursive: true });
 
 const { defaultBridgePort, protocolVersion } = await readProtocolConstants();
 const bridgePort = resolveConfiguredBridgePort(defaultBridgePort);
-const bridgeWsUrl = resolveBridgeWsUrl(bridgePort);
+const bridgeWsUrl = canonicalizeLocalUrl(resolveBridgeWsUrl(bridgePort));
 const bridgeHttpUrl = resolveBridgeHttpUrl(bridgeWsUrl);
 const manifestTemplate = JSON.parse(await fs.readFile(manifestTemplatePath, "utf8"));
 const allowedDomains = [bridgeHttpUrl, bridgeWsUrl];

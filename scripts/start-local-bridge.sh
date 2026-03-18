@@ -27,7 +27,7 @@ resolve_default_bridge_port() {
 
 default_bridge_port=$(resolve_default_bridge_port)
 bridge_port="${FIGMA_AUTO_BRIDGE_PORT:-$default_bridge_port}"
-bridge_host="${FIGMA_AUTO_BRIDGE_HOST:-127.0.0.1}"
+bridge_host="${FIGMA_AUTO_BRIDGE_HOST:-localhost}"
 bridge_ws_url="${FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL:-ws://$bridge_host:$bridge_port}"
 bridge_http_url="${FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL:-$(printf '%s' "$bridge_ws_url" | sed 's#^ws:#http:#; s#^wss:#https:#')}"
 

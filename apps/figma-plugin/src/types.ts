@@ -6,8 +6,11 @@ import type {
 
 export interface PluginRuntimeContext {
   pluginInstanceId: string;
+  fileName: string;
   fileKey: string | null;
+  pageName: string;
   pageId: string;
+  selectionCount: number;
   editorType: SessionRegistrationPayload["editorType"];
 }
 

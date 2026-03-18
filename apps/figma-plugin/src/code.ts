@@ -1,39 +1,56 @@
 import {
   PROTOCOL_VERSION,
+  applyStylesPayloadSchema,
   batchEditPayloadSchema,
+  batchEditV2PayloadSchema,
   bindVariablePayloadSchema,
   createComponentPayloadSchema,
   createFramePayloadSchema,
+  createInstancePayloadSchema,
   createPagePayloadSchema,
+  createRectanglePayloadSchema,
   createSpecPagePayloadSchema,
   createTextPayloadSchema,
   createVariableCollectionPayloadSchema,
   createVariablePayloadSchema,
   deleteNodePayloadSchema,
+  duplicateNodePayloadSchema,
   extractDesignTokensPayloadSchema,
   findNodesPayloadSchema,
+  getComponentsPayloadSchema,
+  getStylesPayloadSchema,
   getVariablesPayloadSchema,
   getNodePayloadSchema,
   getNodeTreePayloadSchema,
   moveNodePayloadSchema,
   normalizeNamesPayloadSchema,
   renameNodePayloadSchema,
+  setImageFillPayloadSchema,
+  setInstancePropertiesPayloadSchema,
   setTextPayloadSchema,
+  updateNodePropertiesPayloadSchema,
+  type ApplyStylesResult,
   type BatchEditResult,
+  type BatchEditV2Result,
   type BindVariableResult,
+  type GetComponentsResult,
   type CreateComponentResult,
   type CreateFrameResult,
+  type CreateInstanceResult,
   type CreatePageResult,
+  type CreateRectangleResult,
   type CreateSpecPageResult,
   type CreateTextResult,
   type CreateVariableCollectionResult,
   type CreateVariablePayload,
   type CreateVariableResult,
   type DeleteNodeResult,
+  type DuplicateNodeResult,
   type ExtractDesignTokensResult,
   type FindNodesResult,
   type GetCurrentPageResult,
   type GetFileResult,
+  type GetStylesResult,
   type GetVariablesResult,
   type GetNodeResult,
   type GetNodeTreeResult,
@@ -46,15 +63,37 @@ import {
   type RenameNodeResult,
   type RequestEnvelope,
   type ResponseEnvelope,
-  type SetTextResult
+  type SetImageFillResult,
+  type SetInstancePropertiesResult,
+  type SetTextResult,
+  type UpdateNodePropertiesResult
 } from "@figma-auto/protocol";
 
 import { batchEdit } from "./handlers/batch.js";
+import { batchEditV2 } from "./handlers/batch-v2.js";
+import { getComponents } from "./handlers/components.js";
 import { createSpecPage, extractDesignTokens, normalizeNames } from "./handlers/high-level.js";
 import { findNodes, getCurrentPage, getFile, getNode, getNodeTree, getSelection, listPages, ping } from "./handlers/read.js";
+import { setImageFill } from "./handlers/set-image-fill.js";
+import { setInstanceProperties } from "./handlers/set-instance-properties.js";
 import { buildPluginRuntimeContext } from "./handlers/session.js";
+import { applyStyles, getStyles } from "./handlers/styles.js";
+import { updateNodeProperties } from "./handlers/update-node-properties.js";
 import { bindVariable, createVariable, createVariableCollection, getVariables } from "./handlers/variables.js";
-import { createComponent, createFrame, createPage, createText, deleteNode, moveNode, renameNode, setText } from "./handlers/write.js";
+import {
+  createComponent,
+  createFrame,
+  createInstance,
+  createPage,
+  createRectangle,
+  createText,
+  deleteNode,
+  describeUnknownError,
+  duplicateNode,
+  moveNode,
+  renameNode,
+  setText
+} from "./handlers/write.js";
 import type { PluginToUiMessage, UiToPluginMessage } from "./types.js";
 
 const pluginInstanceId = `plugin_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -68,16 +107,26 @@ type ToolResult =
   | GetNodeResult
   | GetNodeTreeResult
   | FindNodesResult
+  | GetStylesResult
+  | GetComponentsResult
   | GetVariablesResult
   | RenameNodeResult
   | CreatePageResult
   | CreateFrameResult
+  | CreateRectangleResult
   | CreateComponentResult
+  | CreateInstanceResult
   | CreateTextResult
+  | DuplicateNodeResult
+  | SetInstancePropertiesResult
+  | SetImageFillResult
   | SetTextResult
+  | ApplyStylesResult
+  | UpdateNodePropertiesResult
   | MoveNodeResult
   | DeleteNodeResult
   | BatchEditResult
+  | BatchEditV2Result
   | CreateVariableCollectionResult
   | CreateVariableResult
   | BindVariableResult
@@ -121,7 +170,13 @@ function mapErrorCode(message: string): ProtocolError["code"] {
   if (message.includes("not found")) {
     return "node_not_found";
   }
-  if (message.includes("text node") || message.includes("scene node") || message.includes("contain children")) {
+  if (
+    message.includes("text node")
+    || message.includes("scene node")
+    || message.includes("contain children")
+    || message.includes("component or component set")
+    || message.includes("support")
+  ) {
     return "node_type_mismatch";
   }
   if (message.includes("font")) {
@@ -153,6 +208,10 @@ async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelop
         return success(request.requestId, await getNodeTree(getNodeTreePayloadSchema.parse(request.payload)));
       case "figma.find_nodes":
         return success(request.requestId, await findNodes(findNodesPayloadSchema.parse(request.payload)));
+      case "figma.get_styles":
+        return success(request.requestId, await getStyles(getStylesPayloadSchema.parse(request.payload)));
+      case "figma.get_components":
+        return success(request.requestId, await getComponents(getComponentsPayloadSchema.parse(request.payload)));
       case "figma.get_variables":
         return success(request.requestId, await getVariables(getVariablesPayloadSchema.parse(request.payload)));
       case "figma.rename_node":
@@ -161,18 +220,40 @@ async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelop
         return success(request.requestId, createPage(createPagePayloadSchema.parse(request.payload)));
       case "figma.create_frame":
         return success(request.requestId, await createFrame(createFramePayloadSchema.parse(request.payload)));
+      case "figma.create_rectangle":
+        return success(request.requestId, await createRectangle(createRectanglePayloadSchema.parse(request.payload)));
       case "figma.create_component":
         return success(request.requestId, await createComponent(createComponentPayloadSchema.parse(request.payload)));
+      case "figma.create_instance":
+        return success(request.requestId, await createInstance(createInstancePayloadSchema.parse(request.payload)));
       case "figma.create_text":
         return success(request.requestId, await createText(createTextPayloadSchema.parse(request.payload)));
+      case "figma.duplicate_node":
+        return success(request.requestId, await duplicateNode(duplicateNodePayloadSchema.parse(request.payload)));
+      case "figma.set_instance_properties":
+        return success(
+          request.requestId,
+          await setInstanceProperties(setInstancePropertiesPayloadSchema.parse(request.payload))
+        );
+      case "figma.set_image_fill":
+        return success(request.requestId, await setImageFill(setImageFillPayloadSchema.parse(request.payload)));
       case "figma.set_text":
         return success(request.requestId, await setText(setTextPayloadSchema.parse(request.payload)));
+      case "figma.apply_styles":
+        return success(request.requestId, await applyStyles(applyStylesPayloadSchema.parse(request.payload)));
+      case "figma.update_node_properties":
+        return success(
+          request.requestId,
+          await updateNodeProperties(updateNodePropertiesPayloadSchema.parse(request.payload))
+        );
       case "figma.move_node":
         return success(request.requestId, await moveNode(moveNodePayloadSchema.parse(request.payload)));
       case "figma.delete_node":
         return success(request.requestId, await deleteNode(deleteNodePayloadSchema.parse(request.payload)));
       case "figma.batch_edit":
         return success(request.requestId, await batchEdit(batchEditPayloadSchema.parse(request.payload)));
+      case "figma.batch_edit_v2":
+        return success(request.requestId, await batchEditV2(batchEditV2PayloadSchema.parse(request.payload)));
       case "figma.create_variable_collection":
         return success(
           request.requestId,
@@ -198,14 +279,14 @@ async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelop
         return failure(request.requestId, "validation_failed", `Unsupported request type ${request.type}`);
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown plugin error";
+    const message = describeUnknownError(error);
     return failure(request.requestId, mapErrorCode(message), message);
   }
 }
 
 figma.showUI(__html__, {
-  width: 360,
-  height: 260,
+  width: 420,
+  height: 560,
   themeColors: true
 });
 

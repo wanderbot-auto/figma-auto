@@ -15,6 +15,7 @@ import type {
   VariableSummary
 } from "@figma-auto/protocol";
 
+import { requireSceneNode } from "./node-helpers.js";
 import { summarizeNode } from "./read.js";
 
 function toColorValue(color: RGBA): ColorValue {
@@ -109,18 +110,6 @@ async function requireVariable(variableId: string): Promise<Variable> {
   }
 
   return variable;
-}
-
-async function requireSceneNode(nodeId: string): Promise<SceneNode> {
-  const node = await figma.getNodeByIdAsync(nodeId);
-  if (!node) {
-    throw new Error(`Node ${nodeId} was not found`);
-  }
-  if (!("visible" in node)) {
-    throw new Error(`Node ${nodeId} is not a scene node`);
-  }
-
-  return node;
 }
 
 async function resolveVariableValue(value: VariableModeValue): Promise<VariableValue> {

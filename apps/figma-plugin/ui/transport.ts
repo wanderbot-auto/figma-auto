@@ -6,6 +6,8 @@ declare const __FIGMA_AUTO_BRIDGE_PORT__: number;
 declare const __FIGMA_AUTO_BRIDGE_WS_URL__: string;
 declare const __FIGMA_AUTO_PROTOCOL_VERSION__: string;
 
+export type BridgeConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
+
 const BRIDGE_PORT = __FIGMA_AUTO_BRIDGE_PORT__;
 const BRIDGE_WS_URL = __FIGMA_AUTO_BRIDGE_WS_URL__;
 const PROTOCOL_VERSION = __FIGMA_AUTO_PROTOCOL_VERSION__;
@@ -25,7 +27,7 @@ export class BridgeTransport {
   private sessionId = createSessionId();
 
   constructor(
-    private readonly onStatus: (message: string) => void,
+    private readonly onStatusChange: (state: BridgeConnectionState, message: string) => void,
     private readonly onBridgeRequest: (request: RequestEnvelope) => void
   ) {}
 
@@ -41,9 +43,15 @@ export class BridgeTransport {
 
   reconnect(): void {
     this.sessionId = createSessionId();
-    if (this.socket) {
-      this.socket.close();
+    this.emitStatus("connecting", `Reconnecting to ${BRIDGE_WS_URL}`);
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+
+    const previousSocket = this.socket;
+    this.socket = null;
+    previousSocket?.close();
     this.connect();
   }
 
@@ -60,28 +68,44 @@ export class BridgeTransport {
       return;
     }
 
-    this.onStatus(`Connecting to ${BRIDGE_WS_URL}`);
-    this.socket = new WebSocket(BRIDGE_WS_URL);
+    this.emitStatus("connecting", `Connecting to ${BRIDGE_WS_URL}`);
+    const socket = new WebSocket(BRIDGE_WS_URL);
+    this.socket = socket;
 
-    this.socket.addEventListener("open", () => {
-      this.onStatus("Connected to local bridge");
+    socket.addEventListener("open", () => {
+      if (this.socket !== socket) {
+        return;
+      }
+      if (this.reconnectTimer !== null) {
+        window.clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+      this.emitStatus("connected", "Connected to local bridge");
       this.registerSession();
     });
 
-    this.socket.addEventListener("message", (event) => {
+    socket.addEventListener("message", (event) => {
       const message = JSON.parse(event.data as string) as RequestEnvelope | ResponseEnvelope;
       if ("type" in message) {
         this.onBridgeRequest(message);
       }
     });
 
-    this.socket.addEventListener("close", () => {
-      this.onStatus("Disconnected from local bridge");
+    socket.addEventListener("close", () => {
+      if (this.socket !== socket) {
+        return;
+      }
+
+      this.socket = null;
+      this.emitStatus("disconnected", "Disconnected from local bridge. Retrying in 2 seconds.");
       this.scheduleReconnect();
     });
 
-    this.socket.addEventListener("error", () => {
-      this.onStatus("Bridge connection error");
+    socket.addEventListener("error", () => {
+      if (this.socket !== socket) {
+        return;
+      }
+      this.emitStatus("error", "Bridge connection error");
     });
   }
 
@@ -119,5 +143,9 @@ export class BridgeTransport {
     };
 
     this.socket.send(JSON.stringify(request));
+  }
+
+  private emitStatus(state: BridgeConnectionState, message: string): void {
+    this.onStatusChange(state, message);
   }
 }

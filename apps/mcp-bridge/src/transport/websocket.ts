@@ -10,6 +10,7 @@ import {
 import WebSocket, { WebSocketServer } from "ws";
 
 import { ProtocolFailure, coerceProtocolError, errorResponse, successResponse } from "../errors.js";
+import { type BridgeLogger } from "../logging/bridge-log.js";
 import { bridgeRequestSchema, bridgeResponseSchema, bridgeSessionRegistrationSchema, parseIncomingMessage } from "../schema/protocol.js";
 import { PluginSessionStore } from "../session/plugin-session-store.js";
 
@@ -27,13 +28,25 @@ export class PluginWebSocketBridge {
   constructor(
     private readonly host: string,
     private readonly port: number,
-    private readonly sessionStore: PluginSessionStore
+    private readonly sessionStore: PluginSessionStore,
+    private readonly bridgeLogger: BridgeLogger
   ) {}
 
   async start(): Promise<void> {
     this.server = new WebSocketServer({ host: this.host, port: this.port });
+    this.server.on("error", (error) => {
+      void this.bridgeLogger.error("websocket_server_error", {
+        message: error.message,
+        host: this.host,
+        port: this.port
+      });
+    });
     this.server.on("connection", (socket: WebSocket) => this.handleConnection(socket));
     await new Promise<void>((resolve) => this.server?.on("listening", () => resolve()));
+    await this.bridgeLogger.info("websocket_listening", {
+      host: this.host,
+      port: this.port
+    });
   }
 
   async stop(): Promise<void> {
@@ -61,6 +74,11 @@ export class PluginWebSocketBridge {
     const session = this.sessionStore.requireActive();
     if (session.socket.readyState !== WebSocket.OPEN) {
       this.sessionStore.clearForSocket(session.socket);
+      await this.bridgeLogger.warn("plugin_session_missing", {
+        requestId,
+        tool: type,
+        sessionId: session.context.sessionId
+      });
       throw new ProtocolFailure("missing_session", "The active plugin session is not connected");
     }
 
@@ -97,21 +115,39 @@ export class PluginWebSocketBridge {
   }
 
   private handleConnection(socket: WebSocket): void {
+    void this.bridgeLogger.info("websocket_connected");
+
     socket.on("message", (buffer: WebSocket.RawData) => {
       this.handleMessage(socket, buffer.toString()).catch((error) => {
+        const protocolError = coerceProtocolError(error);
+        void this.bridgeLogger.error("websocket_message_failed", {
+          code: protocolError.code,
+          message: protocolError.message
+        });
         const requestId = randomUUID();
-        socket.send(JSON.stringify(errorResponse(requestId, coerceProtocolError(error))));
+        socket.send(JSON.stringify(errorResponse(requestId, protocolError)));
       });
     });
 
     socket.on("close", () => {
+      const sessionId = this.sessionStore.getActive()?.socket === socket
+        ? this.sessionStore.getActive()?.context.sessionId
+        : undefined;
       this.rejectPendingForSocket(socket);
       this.sessionStore.clearForSocket(socket);
+      void this.bridgeLogger.info("websocket_closed", { sessionId });
     });
 
-    socket.on("error", () => {
+    socket.on("error", (error) => {
+      const sessionId = this.sessionStore.getActive()?.socket === socket
+        ? this.sessionStore.getActive()?.context.sessionId
+        : undefined;
       this.rejectPendingForSocket(socket);
       this.sessionStore.clearForSocket(socket);
+      void this.bridgeLogger.warn("websocket_socket_error", {
+        sessionId,
+        message: error.message
+      });
     });
   }
 
@@ -126,6 +162,7 @@ export class PluginWebSocketBridge {
   }
 
   private async handleMessage(socket: WebSocket, raw: string): Promise<void> {
+    this.sessionStore.touchForSocket(socket);
     const parsed = parseIncomingMessage(raw);
 
     if (this.tryResolvePending(parsed)) {
@@ -142,7 +179,16 @@ export class PluginWebSocketBridge {
       throw new ProtocolFailure("validation_failed", "Session registration payload does not match the envelope");
     }
 
+    const previousSession = this.sessionStore.getActive();
     this.sessionStore.register(registration, socket);
+    await this.bridgeLogger.info("session_registered", {
+      sessionId: registration.sessionId,
+      pluginInstanceId: registration.pluginInstanceId,
+      pageId: registration.pageId,
+      editorType: registration.editorType,
+      replacedSessionId:
+        previousSession && previousSession.socket !== socket ? previousSession.context.sessionId : undefined
+    });
     socket.send(JSON.stringify(successResponse(request.requestId, { registered: true })));
   }
 
@@ -159,6 +205,7 @@ export class PluginWebSocketBridge {
 
     clearTimeout(pending.timer);
     this.pending.delete(parsed.data.requestId);
+    this.sessionStore.touchForSocket(pending.socket);
     pending.resolve(parsed.data);
     return true;
   }
