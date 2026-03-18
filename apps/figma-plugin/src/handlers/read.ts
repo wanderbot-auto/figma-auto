@@ -1,5 +1,7 @@
 import type {
   FileSummary,
+  FindNodesPayload,
+  FindNodesResult,
   GetCurrentPageResult,
   GetFileResult,
   GetNodeResult,
@@ -26,6 +28,57 @@ function isTextNode(node: BaseNode): node is TextNode {
   return node.type === "TEXT";
 }
 
+function matchesName(node: BaseNode, payload: FindNodesPayload): boolean {
+  const maybeNamedNode = node as BaseNode & { name?: string };
+  const name = typeof maybeNamedNode.name === "string" ? maybeNamedNode.name : "";
+  const normalizedName = name.toLocaleLowerCase();
+
+  if (payload.nameExact && normalizedName !== payload.nameExact.toLocaleLowerCase()) {
+    return false;
+  }
+
+  if (payload.nameContains && !normalizedName.includes(payload.nameContains.toLocaleLowerCase())) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesNode(node: BaseNode, payload: FindNodesPayload): boolean {
+  if (payload.type && node.type !== payload.type) {
+    return false;
+  }
+
+  return matchesName(node, payload);
+}
+
+function collectMatchingNodes(
+  node: BaseNode,
+  payload: FindNodesPayload,
+  limit: number,
+  matches: NodeSummary[],
+  counts: { totalMatches: number }
+): void {
+  if (isSceneNode(node) && !node.visible && !(payload.includeHidden ?? false)) {
+    return;
+  }
+
+  if (matchesNode(node, payload)) {
+    counts.totalMatches += 1;
+    if (matches.length < limit) {
+      matches.push(summarizeNode(node));
+    }
+  }
+
+  if (!hasChildren(node)) {
+    return;
+  }
+
+  for (const child of node.children) {
+    collectMatchingNodes(child, payload, limit, matches, counts);
+  }
+}
+
 function toPageSummary(page: PageNode): PageSummary {
   return {
     id: page.id,
@@ -42,8 +95,8 @@ function buildFileSummary(): FileSummary {
   };
 }
 
-function requireBaseNode(nodeId: string): BaseNode {
-  const node = figma.getNodeById(nodeId);
+async function requireBaseNode(nodeId: string): Promise<BaseNode> {
+  const node = await figma.getNodeByIdAsync(nodeId);
   if (!node) {
     throw new Error(`Node ${nodeId} was not found`);
   }
@@ -133,16 +186,32 @@ export function listPages(): ListPagesResult {
   };
 }
 
-export function getNode(nodeId: string): GetNodeResult {
+export async function getNode(nodeId: string): Promise<GetNodeResult> {
   return {
-    node: describeNode(requireBaseNode(nodeId))
+    node: describeNode(await requireBaseNode(nodeId))
   };
 }
 
-export function getNodeTree(payload: GetNodeTreePayload): GetNodeTreeResult {
-  const root = payload.nodeId ? requireBaseNode(payload.nodeId) : figma.currentPage;
+export async function getNodeTree(payload: GetNodeTreePayload): Promise<GetNodeTreeResult> {
+  const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
   return {
     root: buildNodeTree(root, payload.depth),
     requestedDepth: payload.depth
+  };
+}
+
+export async function findNodes(payload: FindNodesPayload): Promise<FindNodesResult> {
+  const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
+  const limit = payload.limit ?? 50;
+  const matches: NodeSummary[] = [];
+  const counts = { totalMatches: 0 };
+
+  collectMatchingNodes(root, payload, limit, matches, counts);
+
+  return {
+    root: summarizeNode(root),
+    matches,
+    totalMatches: counts.totalMatches,
+    truncated: counts.totalMatches > matches.length
   };
 }

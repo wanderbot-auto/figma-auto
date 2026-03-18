@@ -24,9 +24,10 @@ function summarizeOperation(operation: BatchOperation): string {
 async function dryRunOperation(operation: BatchOperation): Promise<BatchEditItemResult> {
   switch (operation.op) {
     case "rename_node": {
-      const node = figma.getNodeById(operation.nodeId);
+      const node = await figma.getNodeByIdAsync(operation.nodeId);
       if (!node || !("name" in node)) {
         return {
+          index: -1,
           op: operation.op,
           ok: false,
           wouldChange: false,
@@ -39,23 +40,39 @@ async function dryRunOperation(operation: BatchOperation): Promise<BatchEditItem
       }
 
       return {
+        index: -1,
         op: operation.op,
         ok: true,
         wouldChange: node.name !== operation.name,
-        targetSummary: summarizeOperation(operation)
+        targetSummary: summarizeOperation(operation),
+        preview: {
+          before: {
+            name: node.name
+          },
+          after: {
+            name: operation.name
+          }
+        }
       };
     }
     case "create_page":
       return {
+        index: -1,
         op: operation.op,
         ok: true,
         wouldChange: true,
-        targetSummary: summarizeOperation(operation)
+        targetSummary: summarizeOperation(operation),
+        preview: {
+          after: {
+            name: operation.name
+          }
+        }
       };
     case "set_text": {
-      const node = figma.getNodeById(operation.nodeId);
+      const node = await figma.getNodeByIdAsync(operation.nodeId);
       if (!node || node.type !== "TEXT") {
         return {
+          index: -1,
           op: operation.op,
           ok: false,
           wouldChange: false,
@@ -68,10 +85,19 @@ async function dryRunOperation(operation: BatchOperation): Promise<BatchEditItem
       }
 
       return {
+        index: -1,
         op: operation.op,
         ok: true,
         wouldChange: node.characters !== operation.text,
-        targetSummary: summarizeOperation(operation)
+        targetSummary: summarizeOperation(operation),
+        preview: {
+          before: {
+            text: node.characters
+          },
+          after: {
+            text: operation.text
+          }
+        }
       };
     }
   }
@@ -81,8 +107,9 @@ async function runOperation(operation: BatchOperation): Promise<BatchEditItemRes
   try {
     switch (operation.op) {
       case "rename_node": {
-        const result = renameNode(operation as RenameNodePayload);
+        const result = await renameNode(operation as RenameNodePayload);
         return {
+          index: -1,
           op: operation.op,
           ok: true,
           wouldChange: true,
@@ -93,6 +120,7 @@ async function runOperation(operation: BatchOperation): Promise<BatchEditItemRes
       case "create_page": {
         const result = createPage(operation as CreatePagePayload);
         return {
+          index: -1,
           op: operation.op,
           ok: true,
           wouldChange: true,
@@ -103,6 +131,7 @@ async function runOperation(operation: BatchOperation): Promise<BatchEditItemRes
       case "set_text": {
         const result = await setText(operation as SetTextPayload);
         return {
+          index: -1,
           op: operation.op,
           ok: true,
           wouldChange: true,
@@ -123,6 +152,7 @@ async function runOperation(operation: BatchOperation): Promise<BatchEditItemRes
             : "internal_error";
 
     return {
+      index: -1,
       op: operation.op,
       ok: false,
       wouldChange: false,
@@ -137,9 +167,13 @@ async function runOperation(operation: BatchOperation): Promise<BatchEditItemRes
 
 export async function batchEdit(payload: BatchEditPayload): Promise<BatchEditResult> {
   const dryRun = payload.dryRun ?? true;
+  if (!dryRun && payload.confirm !== true) {
+    throw new Error("Committed batch_edit requires confirm=true");
+  }
+
   const results = dryRun
-    ? await Promise.all(payload.ops.map((operation) => dryRunOperation(operation)))
-    : await Promise.all(payload.ops.map((operation) => runOperation(operation)));
+    ? await Promise.all(payload.ops.map((operation, index) => dryRunOperation(operation).then((result) => ({ ...result, index }))))
+    : await Promise.all(payload.ops.map((operation, index) => runOperation(operation).then((result) => ({ ...result, index }))));
   const successful = results.filter((result) => result.ok).length;
 
   return {

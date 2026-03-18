@@ -25,12 +25,13 @@ export class PluginWebSocketBridge {
   private readonly pending = new Map<string, PendingRequest>();
 
   constructor(
+    private readonly host: string,
     private readonly port: number,
     private readonly sessionStore: PluginSessionStore
   ) {}
 
   async start(): Promise<void> {
-    this.server = new WebSocketServer({ port: this.port });
+    this.server = new WebSocketServer({ host: this.host, port: this.port });
     this.server.on("connection", (socket: WebSocket) => this.handleConnection(socket));
     await new Promise<void>((resolve) => this.server?.on("listening", () => resolve()));
   }

@@ -5,8 +5,78 @@ import path from "node:path";
 const pluginRoot = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(pluginRoot, "dist");
 const uiTemplatePath = path.join(pluginRoot, "ui", "index.html");
+const manifestTemplatePath = path.join(pluginRoot, "manifest.template.json");
+const manifestPath = path.join(pluginRoot, "manifest.json");
+const protocolMessagesPath = path.resolve(pluginRoot, "../../packages/protocol/src/messages.ts");
+
+async function readProtocolConstants() {
+  const protocolSource = await fs.readFile(protocolMessagesPath, "utf8");
+  const bridgePortMatch = protocolSource.match(/export const BRIDGE_PORT = (\d+);/);
+  const protocolVersionMatch = protocolSource.match(/export const PROTOCOL_VERSION = "([^"]+)";/);
+
+  if (!bridgePortMatch || !protocolVersionMatch) {
+    throw new Error(`Unable to resolve protocol constants from ${protocolMessagesPath}`);
+  }
+
+  return {
+    defaultBridgePort: Number.parseInt(bridgePortMatch[1], 10),
+    protocolVersion: protocolVersionMatch[1]
+  };
+}
+
+function resolveConfiguredBridgePort(defaultPort) {
+  const configuredPort = Number.parseInt(process.env.FIGMA_AUTO_BRIDGE_PORT ?? `${defaultPort}`, 10);
+  return Number.isNaN(configuredPort) ? defaultPort : configuredPort;
+}
+
+function resolveBridgeWsUrl(bridgePort) {
+  return process.env.FIGMA_AUTO_BRIDGE_WS_URL ?? `ws://localhost:${bridgePort}`;
+}
+
+function resolveBridgeHttpUrl(bridgeWsUrl) {
+  if (process.env.FIGMA_AUTO_BRIDGE_HTTP_URL) {
+    return process.env.FIGMA_AUTO_BRIDGE_HTTP_URL;
+  }
+
+  const wsUrl = new URL(bridgeWsUrl);
+  if (wsUrl.protocol === "ws:") {
+    wsUrl.protocol = "http:";
+    return wsUrl.toString().replace(/\/$/, "");
+  }
+  if (wsUrl.protocol === "wss:") {
+    wsUrl.protocol = "https:";
+    return wsUrl.toString().replace(/\/$/, "");
+  }
+
+  throw new Error(`Unsupported bridge websocket protocol in ${bridgeWsUrl}`);
+}
+
+function isLocalBridgeUrl(rawUrl) {
+  const url = new URL(rawUrl);
+  return ["localhost", "127.0.0.1"].includes(url.hostname);
+}
+
+function resolvePluginId() {
+  return process.env.FIGMA_AUTO_FIGMA_PLUGIN_ID ?? "REPLACE_WITH_FIGMA_PLUGIN_ID";
+}
 
 await fs.mkdir(distDir, { recursive: true });
+
+const { defaultBridgePort, protocolVersion } = await readProtocolConstants();
+const bridgePort = resolveConfiguredBridgePort(defaultBridgePort);
+const bridgeWsUrl = resolveBridgeWsUrl(bridgePort);
+const bridgeHttpUrl = resolveBridgeHttpUrl(bridgeWsUrl);
+const manifestTemplate = JSON.parse(await fs.readFile(manifestTemplatePath, "utf8"));
+const allowedDomains = [bridgeHttpUrl, bridgeWsUrl];
+const manifest = {
+  ...manifestTemplate,
+  id: resolvePluginId(),
+  networkAccess: {
+    ...manifestTemplate.networkAccess,
+    allowedDomains: isLocalBridgeUrl(bridgeWsUrl) ? ["none"] : allowedDomains,
+    devAllowedDomains: isLocalBridgeUrl(bridgeWsUrl) ? allowedDomains : []
+  }
+};
 
 await esbuild.build({
   entryPoints: [path.join(pluginRoot, "src", "code.ts")],
@@ -24,7 +94,17 @@ await esbuild.build({
   outfile: path.join(distDir, "ui.js"),
   format: "iife",
   platform: "browser",
-  target: ["es2017"]
+  target: ["es2017"],
+  define: {
+    __FIGMA_AUTO_BRIDGE_PORT__: `${bridgePort}`,
+    __FIGMA_AUTO_BRIDGE_WS_URL__: JSON.stringify(bridgeWsUrl),
+    __FIGMA_AUTO_PROTOCOL_VERSION__: JSON.stringify(protocolVersion)
+  }
 });
 
-await fs.copyFile(uiTemplatePath, path.join(distDir, "ui.html"));
+const uiTemplate = await fs.readFile(uiTemplatePath, "utf8");
+const uiScript = await fs.readFile(path.join(distDir, "ui.js"), "utf8");
+const uiHtml = uiTemplate.replace("__FIGMA_AUTO_UI_SCRIPT__", uiScript);
+
+await fs.writeFile(path.join(distDir, "ui.html"), uiHtml, "utf8");
+await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

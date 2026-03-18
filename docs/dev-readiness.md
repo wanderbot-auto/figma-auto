@@ -22,8 +22,8 @@ Not ready yet:
 
 - the live plugin workflow has not yet been verified end to end in Figma desktop
 - the placeholder plugin ID still needs to be replaced in `apps/figma-plugin/manifest.json`
-- tool coverage is still limited to the first milestone surface
 - reconnect and stale-session behavior are implemented, but not yet exercised in a live session
+- automated coverage still stops short of a live plugin-session integration test
 
 ## Decisions Locked Before Coding
 
@@ -98,13 +98,17 @@ Why now:
 
 - text editing is in the first milestone and often introduces plugin-specific edge cases
 
-## Can Be Deferred Until After Milestone 1
+## Completed Beyond Milestone 1
+
+- remote bridge URL and host configuration
+- variable reads, creation, and binding
+- higher-level transformation tools such as `normalize_names`
+- generated spec-page output and design-token extraction
+
+## Still Deferred
 
 - streamable HTTP transport
-- remote bridge option
-- variable creation and binding
-- high-level transformation tools such as `normalize_names`
-- team-oriented operational concerns
+- team-oriented operational hardening beyond configurable remote URLs
 
 ## Pre-Implementation Checklist
 
@@ -163,6 +167,7 @@ Use this checklist before opening the first feature branch.
 The project should have automated coverage before feature growth. At minimum, prepare tests for:
 
 - schema validation of each milestone 1 tool input
+- schema validation of higher-level tool inputs and variable payloads
 - protocol encode and decode behavior
 - session store behavior for connect, disconnect, and stale session rejection
 - audit log writes for committed and dry-run operations
@@ -207,5 +212,7 @@ These still need confirmation through live usage rather than further planning:
 
 - does the plugin UI successfully reconnect inside the Figma desktop runtime
 - does `set_text` behave correctly on real text nodes with mixed fonts
+- do variable creation and binding behave correctly across real file plans and modes
+- does `create_component` preserve expected layer structure in live files
 - are the current MCP SDK tool responses ergonomic enough for Codex in practice
 - should additional metadata be logged once real tool usage starts

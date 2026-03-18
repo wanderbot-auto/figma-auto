@@ -2,19 +2,12 @@
   "name": "Figma Auto Bridge",
   "id": "REPLACE_WITH_FIGMA_PLUGIN_ID",
   "api": "1.0.0",
-  "editorType": [
-    "figma"
-  ],
+  "editorType": ["figma"],
   "main": "dist/code.js",
   "ui": "dist/ui.html",
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": [
-      "none"
-    ],
-    "devAllowedDomains": [
-      "http://localhost:4318",
-      "ws://localhost:4318"
-    ]
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:4318", "ws://localhost:4318"]
   }
 }

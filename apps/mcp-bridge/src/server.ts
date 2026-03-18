@@ -13,7 +13,7 @@ import { PluginWebSocketBridge } from "./transport/websocket.js";
 export class FigmaAutoBridgeServer {
   private readonly sessionStore = new PluginSessionStore();
   private readonly auditLogger = new AuditLogger(bridgeConfig.auditLogPath);
-  private readonly wsBridge = new PluginWebSocketBridge(bridgeConfig.port, this.sessionStore);
+  private readonly wsBridge = new PluginWebSocketBridge(bridgeConfig.host, bridgeConfig.port, this.sessionStore);
   private readonly mcpServer = new McpServer({
     name: "figma-auto-bridge",
     version: "0.1.0"
@@ -31,18 +31,21 @@ export class FigmaAutoBridgeServer {
 
   private registerTools(): void {
     for (const definition of toolDefinitions) {
-      this.mcpServer.tool(
+      this.mcpServer.registerTool(
         definition.name,
-        definition.description,
-        definition.schema.shape,
-        async (input: Record<string, unknown>) => {
+        {
+          description: definition.description,
+          inputSchema: definition.schema
+        },
+        async (input: unknown) => {
           const requestId = crypto.randomUUID();
+          const parsedInput = definition.schema.parse(input) as Record<string, unknown>;
           return this.handleTool(
             definition.name as ToolName,
             requestId,
-            input,
-            definition.targetSummary(input as never),
-            definition.auditMode(input as never)
+            parsedInput,
+            definition.targetSummary(parsedInput as never),
+            definition.auditMode(parsedInput as never)
           );
         }
       );

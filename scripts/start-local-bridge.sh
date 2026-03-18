@@ -10,9 +10,26 @@ audit_log_path="${FIGMA_AUTO_AUDIT_LOG_PATH:-$logs_dir/audit.ndjson}"
 manifest_path="$root_dir/apps/figma-plugin/manifest.json"
 plugin_dist_dir="$root_dir/apps/figma-plugin/dist"
 bridge_entry_path="$root_dir/apps/mcp-bridge/dist/index.js"
+protocol_messages_path="$root_dir/packages/protocol/src/messages.ts"
 
 print_config_only=0
 skip_build=0
+
+resolve_default_bridge_port() {
+  port=$(sed -n 's/^export const BRIDGE_PORT = \([0-9][0-9]*\);$/\1/p' "$protocol_messages_path" | head -n 1)
+  if [ -z "$port" ]; then
+    printf 'Unable to resolve BRIDGE_PORT from %s\n' "$protocol_messages_path" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$port"
+}
+
+default_bridge_port=$(resolve_default_bridge_port)
+bridge_port="${FIGMA_AUTO_BRIDGE_PORT:-$default_bridge_port}"
+bridge_host="${FIGMA_AUTO_BRIDGE_HOST:-127.0.0.1}"
+bridge_ws_url="${FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL:-ws://$bridge_host:$bridge_port}"
+bridge_http_url="${FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL:-$(printf '%s' "$bridge_ws_url" | sed 's#^ws:#http:#; s#^wss:#https:#')}"
 
 for arg in "$@"; do
   case "$arg" in
@@ -52,7 +69,8 @@ print_config() {
   printf -- '- bridge entry: %s\n' "$(format_path "$bridge_entry_path")"
   printf -- '- bridge stdout log: %s\n' "$(format_path "$bridge_log_path")"
   printf -- '- audit log: %s\n' "$(format_path "$audit_log_path")"
-  printf -- '- websocket url: ws://localhost:4318\n'
+  printf -- '- websocket url: %s\n' "$bridge_ws_url"
+  printf -- '- http url: %s\n' "$bridge_http_url"
 }
 
 cleanup() {
@@ -87,6 +105,9 @@ if [ "$skip_build" -ne 1 ]; then
   printf '\nBuilding plugin and bridge...\n'
   (
     cd "$root_dir"
+    FIGMA_AUTO_BRIDGE_PORT="$bridge_port" \
+    FIGMA_AUTO_BRIDGE_WS_URL="$bridge_ws_url" \
+    FIGMA_AUTO_BRIDGE_HTTP_URL="$bridge_http_url" \
     npm run build
   )
 fi
@@ -105,7 +126,12 @@ tee_pid=$!
 
 (
   cd "$root_dir"
-  FIGMA_AUTO_AUDIT_LOG_PATH="$audit_log_path" node "$bridge_entry_path"
+  FIGMA_AUTO_BRIDGE_PORT="$bridge_port" \
+  FIGMA_AUTO_BRIDGE_HOST="$bridge_host" \
+  FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL="$bridge_ws_url" \
+  FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL="$bridge_http_url" \
+  FIGMA_AUTO_AUDIT_LOG_PATH="$audit_log_path" \
+  node "$bridge_entry_path"
 ) > "$log_pipe" 2>&1 &
 bridge_pid=$!
 

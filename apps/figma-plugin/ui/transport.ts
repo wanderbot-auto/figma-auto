@@ -2,8 +2,13 @@ import type { RequestEnvelope, ResponseEnvelope, SessionRegistrationPayload } fr
 
 import type { PluginRuntimeContext } from "./types.js";
 
-const BRIDGE_PORT = 4318;
-const PROTOCOL_VERSION = "1.0.0";
+declare const __FIGMA_AUTO_BRIDGE_PORT__: number;
+declare const __FIGMA_AUTO_BRIDGE_WS_URL__: string;
+declare const __FIGMA_AUTO_PROTOCOL_VERSION__: string;
+
+const BRIDGE_PORT = __FIGMA_AUTO_BRIDGE_PORT__;
+const BRIDGE_WS_URL = __FIGMA_AUTO_BRIDGE_WS_URL__;
+const PROTOCOL_VERSION = __FIGMA_AUTO_PROTOCOL_VERSION__;
 
 function createSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -55,8 +60,8 @@ export class BridgeTransport {
       return;
     }
 
-    this.onStatus(`Connecting to ws://localhost:${BRIDGE_PORT}`);
-    this.socket = new WebSocket(`ws://localhost:${BRIDGE_PORT}`);
+    this.onStatus(`Connecting to ${BRIDGE_WS_URL}`);
+    this.socket = new WebSocket(BRIDGE_WS_URL);
 
     this.socket.addEventListener("open", () => {
       this.onStatus("Connected to local bridge");

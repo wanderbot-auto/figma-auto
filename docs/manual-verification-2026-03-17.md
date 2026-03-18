@@ -60,17 +60,27 @@ Record the current environment before starting:
 | READ-04 | List pages in the file | Tool: `figma_list_pages` | Returns all pages and includes the current page | `todo` | |
 | READ-05 | Read one node by ID | Tool: `figma_get_node` | Returns a normalized snapshot for a known node ID | `todo` | |
 | READ-06 | Read a subtree by ID | Tool: `figma_get_node_tree` | Returns recursive child structure for the chosen node | `todo` | |
+| READ-07 | Search nodes within the current page or a subtree | Tool: `figma_find_nodes` | Returns matching nodes, total count, and truncation flag | `todo` | |
+| READ-08 | Read local variables and collections | Tool: `figma_get_variables` | Returns local variable collections and variables with mode values | `todo` | |
 | WRITE-01 | Rename an existing node | Tool: `figma_rename_node` | Target node name changes in Figma and the tool call succeeds | `todo` | |
 | WRITE-02 | Create a new page | Tool: `figma_create_page` | A new page appears with the requested name | `todo` | |
 | WRITE-03 | Create a new frame | Tool: `figma_create_frame` | A new frame appears in the target page with the requested size and position if provided | `todo` | |
+| WRITE-03A | Create a new component | Tool: `figma_create_component` | A component is created or the target node is converted into one | `todo` | |
 | WRITE-04 | Create a new text node | Tool: `figma_create_text` | A new text node appears in the target page or frame | `todo` | |
 | WRITE-05 | Update text content | Tool: `figma_set_text` | The target text node content updates to the provided string | `todo` | |
 | WRITE-06 | Re-parent a node | Tool: `figma_move_node` | Node moves under the requested parent and remains visible in the expected location | `todo` | |
+| WRITE-07 | Create a variable collection | Tool: `figma_create_variable_collection` | A local variable collection appears with the requested modes | `todo` | |
+| WRITE-08 | Create a variable | Tool: `figma_create_variable` | A variable appears in the requested collection with the requested values | `todo` | |
+| WRITE-09 | Bind or unbind a variable | Tool: `figma_bind_variable` | The requested node field or fill reflects the variable binding change | `todo` | |
 | SAFE-01 | Delete is blocked without confirmation | Tool: `figma_delete_node` with `confirm: false` | Tool rejects the request and the node is not deleted | `todo` | |
 | SAFE-02 | Delete succeeds with confirmation | Tool: `figma_delete_node` with `confirm: true` | Target node is deleted and the tool returns success | `todo` | |
 | SAFE-03 | Batch edit supports dry run | Tool: `figma_batch_edit` with `dryRun: true` | Tool returns a preview result and the document remains unchanged | `todo` | |
 | SAFE-04 | Batch edit can commit changes | Tool: `figma_batch_edit` with `dryRun: false` and `confirm: true` | Tool applies the listed operations and reports per-op results | `todo` | |
 | SAFE-05 | Write operations are audited | File check: `logs/audit.ndjson` | Committed write operations append audit entries with enough context to trace the change | `todo` | |
+| HIGH-01 | Normalize names previews changes | Tool: `figma_normalize_names` with `dryRun: true` | Tool returns proposed renames and the document remains unchanged | `todo` | |
+| HIGH-02 | Normalize names commits changes | Tool: `figma_normalize_names` with `dryRun: false` and `confirm: true` | Matching node names are updated in Figma | `todo` | |
+| HIGH-03 | Create a spec page | Tool: `figma_create_spec_page` | A new page appears with generated documentation text | `todo` | |
+| HIGH-04 | Extract design tokens | Tool: `figma_extract_design_tokens` | Tool returns variables and style tokens without mutating the document | `todo` | |
 
 ## Detailed Run Log
 

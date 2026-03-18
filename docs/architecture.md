@@ -179,6 +179,8 @@ Start with a Design plugin, not a Dev Mode plugin.
 
 Implementation note: the build pipeline must explicitly generate both `dist/code.js` and `dist/ui.html`; the original plan only covered the JavaScript bundle and should not be copied as-is.
 
+Implementation note: keep the default bridge port in shared protocol constants, and generate `apps/figma-plugin/manifest.json` from a template during build so the plugin UI, bridge runtime, and manifest do not drift when the local port changes.
+
 ## Protocol Shape
 
 Bridge-to-plugin communication should use a typed envelope with:

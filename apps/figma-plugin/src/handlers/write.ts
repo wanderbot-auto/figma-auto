@@ -1,4 +1,6 @@
 import type {
+  CreateComponentPayload,
+  CreateComponentResult,
   CreateFramePayload,
   CreateFrameResult,
   CreatePagePayload,
@@ -23,8 +25,8 @@ function hasChildren(node: BaseNode): node is ChildContainerNode {
   return "children" in node;
 }
 
-function requireBaseNode(nodeId: string): BaseNode {
-  const node = figma.getNodeById(nodeId);
+async function requireBaseNode(nodeId: string): Promise<BaseNode> {
+  const node = await figma.getNodeByIdAsync(nodeId);
   if (!node) {
     throw new Error(`Node ${nodeId} was not found`);
   }
@@ -32,8 +34,8 @@ function requireBaseNode(nodeId: string): BaseNode {
   return node;
 }
 
-function requireSceneNode(nodeId: string): SceneNode {
-  const node = requireBaseNode(nodeId);
+async function requireSceneNode(nodeId: string): Promise<SceneNode> {
+  const node = await requireBaseNode(nodeId);
   if (!("visible" in node)) {
     throw new Error(`Node ${nodeId} is not a scene node`);
   }
@@ -41,12 +43,12 @@ function requireSceneNode(nodeId: string): SceneNode {
   return node;
 }
 
-function requireChildContainer(nodeId: string | undefined): ChildContainerNode {
+async function requireChildContainer(nodeId: string | undefined): Promise<ChildContainerNode> {
   if (!nodeId) {
     return figma.currentPage;
   }
 
-  const node = requireBaseNode(nodeId);
+  const node = await requireBaseNode(nodeId);
   if (!hasChildren(node)) {
     throw new Error(`Node ${nodeId} cannot contain children`);
   }
@@ -54,7 +56,7 @@ function requireChildContainer(nodeId: string | undefined): ChildContainerNode {
   return node;
 }
 
-async function loadFontsForNode(node: TextNode): Promise<void> {
+export async function loadFontsForNode(node: TextNode): Promise<void> {
   if (node.characters.length > 0) {
     const fontNames = node.getRangeAllFontNames(0, node.characters.length);
     const uniqueFonts = Array.from(
@@ -86,8 +88,8 @@ function placeNode(node: SceneNode, parent: ChildContainerNode, x?: number, y?: 
   }
 }
 
-export function renameNode(payload: RenameNodePayload): RenameNodeResult {
-  const node = requireSceneNode(payload.nodeId);
+export async function renameNode(payload: RenameNodePayload): Promise<RenameNodeResult> {
+  const node = await requireSceneNode(payload.nodeId);
   node.name = payload.name;
   return { node: summarizeNode(node) };
 }
@@ -106,8 +108,8 @@ export function createPage(payload: CreatePagePayload): CreatePageResult {
   };
 }
 
-export function createFrame(payload: CreateFramePayload): CreateFrameResult {
-  const parent = requireChildContainer(payload.parentId);
+export async function createFrame(payload: CreateFramePayload): Promise<CreateFrameResult> {
+  const parent = await requireChildContainer(payload.parentId);
   const frame = figma.createFrame();
 
   frame.name = payload.name ?? frame.name;
@@ -119,8 +121,31 @@ export function createFrame(payload: CreateFramePayload): CreateFrameResult {
   };
 }
 
+export async function createComponent(payload: CreateComponentPayload): Promise<CreateComponentResult> {
+  if (payload.nodeId) {
+    const sourceNode = await requireSceneNode(payload.nodeId);
+    const component = figma.createComponentFromNode(sourceNode);
+    component.name = payload.name ?? component.name;
+    return {
+      node: describeNode(component),
+      sourceNodeId: payload.nodeId
+    };
+  }
+
+  const parent = await requireChildContainer(payload.parentId);
+  const component = figma.createComponent();
+
+  component.name = payload.name ?? component.name;
+  component.resize(payload.width ?? component.width, payload.height ?? component.height);
+  placeNode(component, parent, payload.x, payload.y);
+
+  return {
+    node: describeNode(component)
+  };
+}
+
 export async function createText(payload: CreateTextPayload): Promise<CreateTextResult> {
-  const parent = requireChildContainer(payload.parentId);
+  const parent = await requireChildContainer(payload.parentId);
   const node = figma.createText();
 
   node.name = payload.name ?? node.name;
@@ -135,7 +160,7 @@ export async function createText(payload: CreateTextPayload): Promise<CreateText
 }
 
 export async function setText(payload: SetTextPayload): Promise<SetTextResult> {
-  const node = requireSceneNode(payload.nodeId);
+  const node = await requireSceneNode(payload.nodeId);
   if (node.type !== "TEXT") {
     throw new Error(`Node ${payload.nodeId} is not a text node`);
   }
@@ -148,9 +173,9 @@ export async function setText(payload: SetTextPayload): Promise<SetTextResult> {
   };
 }
 
-export function moveNode(payload: MoveNodePayload): MoveNodeResult {
-  const node = requireSceneNode(payload.nodeId);
-  const parent = requireChildContainer(payload.parentId);
+export async function moveNode(payload: MoveNodePayload): Promise<MoveNodeResult> {
+  const node = await requireSceneNode(payload.nodeId);
+  const parent = await requireChildContainer(payload.parentId);
 
   if (node === parent) {
     throw new Error(`Node ${payload.nodeId} cannot be moved into itself`);
@@ -169,12 +194,12 @@ export function moveNode(payload: MoveNodePayload): MoveNodeResult {
   };
 }
 
-export function deleteNode(payload: DeleteNodePayload): DeleteNodeResult {
+export async function deleteNode(payload: DeleteNodePayload): Promise<DeleteNodeResult> {
   if (!payload.confirm) {
     throw new Error("Deleting a node requires confirm=true");
   }
 
-  const node = requireSceneNode(payload.nodeId);
+  const node = await requireSceneNode(payload.nodeId);
   const summary = summarizeNode(node);
   node.remove();
 

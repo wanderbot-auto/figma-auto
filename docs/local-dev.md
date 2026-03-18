@@ -40,10 +40,22 @@ npm run dev:bridge
 npm run paths:local
 ```
 
+Optional environment overrides:
+
+```bash
+FIGMA_AUTO_BRIDGE_PORT=4318
+FIGMA_AUTO_BRIDGE_HOST=127.0.0.1
+FIGMA_AUTO_BRIDGE_WS_URL=ws://localhost:4318
+FIGMA_AUTO_BRIDGE_HTTP_URL=http://localhost:4318
+FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL=ws://localhost:4318
+FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL=http://localhost:4318
+FIGMA_AUTO_FIGMA_PLUGIN_ID=your_plugin_id
+```
+
 Command roles:
 
-- `npm run start:local` builds the workspace, starts the bridge, and writes bridge stdout/stderr to `logs/bridge.log`
-- `npm run dev:bridge` starts the already-built bridge without rebuilding
+- `npm run start:local` builds the workspace, regenerates `apps/figma-plugin/manifest.json`, starts the bridge, and writes bridge stdout/stderr to `logs/bridge.log`
+- `npm run dev:bridge` starts the already-built bridge without rebuilding, so it assumes the plugin assets and generated manifest already match the chosen bridge port
 - `npm run paths:local` prints the manifest, dist, and log paths used by the local helper
 
 ## Planned Build Outputs
@@ -55,7 +67,10 @@ apps/figma-plugin/dist/code.js
 apps/figma-plugin/dist/ui.html
 apps/figma-plugin/dist/ui.js
 apps/mcp-bridge/dist/index.js
+apps/figma-plugin/manifest.json
 ```
+
+`apps/figma-plugin/manifest.json` is generated from `apps/figma-plugin/manifest.template.json` during plugin build so that the local bridge port and plugin ID do not have to be hand-edited in multiple places. The same build also injects the chosen bridge port into `apps/figma-plugin/dist/ui.js`.
 
 ## Planned Figma Import Flow
 
@@ -76,12 +91,14 @@ The current expected manual workflow is:
 4. confirm the plugin UI shows bridge connection state
 5. execute MCP tools from Codex against the active file
 
+If you change any bridge URL, host, port, or plugin ID override, rebuild before importing or re-importing the plugin manifest into Figma.
+
 ## Development Conventions To Lock Early
 
 - the plugin should only talk to localhost in development
 - the bridge should reject writes when no plugin session is active
 - destructive operations should require explicit confirmation
-- multi-op writes should default to dry-run mode
+- multi-op writes should default to dry-run mode and require `confirm: true` when `dryRun: false`
 - all committed writes should be logged
 
 ## Manual Verification Checklist
@@ -96,13 +113,22 @@ Use this checklist after the first slice is scaffolded:
 - `figma.get_selection` returns the active selection
 - `figma.get_node` returns a normalized node snapshot
 - `figma.get_node_tree` returns a recursive subtree snapshot
+- `figma.find_nodes` finds nodes within the current page or a target subtree
+- `figma.get_variables` returns local collections and variables
 - `figma.rename_node` changes the selected node name
 - `figma.create_page` creates a new page
 - `figma.create_frame` creates a frame in the active page
+- `figma.create_component` creates a component or converts a node into one
 - `figma.create_text` creates a text node in the active page
 - `figma.move_node` re-parents a node correctly
 - `figma.delete_node` deletes a node only with `confirm: true`
 - `figma.batch_edit` supports dry-run and committed execution
+- `figma.create_variable_collection` creates a variable collection
+- `figma.create_variable` creates a variable with mode values
+- `figma.bind_variable` binds or unbinds a variable on a node
+- `figma.normalize_names` previews and applies normalized layer names
+- `figma.create_spec_page` creates a generated spec page
+- `figma.extract_design_tokens` returns normalized variable/style tokens
 
 ## Known Limitations Right Now
 
