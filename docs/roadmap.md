@@ -14,7 +14,9 @@ This file is the restart-oriented status snapshot for future Codex sessions.
 - bounded node property updates
 - instance property updates
 - image fills
+- variable collection creation, variable creation, and variable binding
 - `batch_edit_v2` with `opId` references
+- `normalize_names`
 - token extraction and plain-text spec page generation
 
 ## Current Gaps

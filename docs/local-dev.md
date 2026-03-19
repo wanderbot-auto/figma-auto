@@ -45,6 +45,7 @@ Plugin build:
 If you change plugin bridge URL settings, rebuild the plugin bundle.
 For local plugin development, use `localhost` URLs, not `127.0.0.1`.
 Figma rejects `devAllowedDomains` entries like `http://127.0.0.1:4318`, so the generated manifest should use `http://localhost:4318` and `ws://localhost:4318`.
+The wrapper script already defaults local runs to `localhost`; if you start the bridge directly, override `FIGMA_AUTO_BRIDGE_HOST` as needed because the bridge process itself defaults to `127.0.0.1`.
 
 ## Logs
 
