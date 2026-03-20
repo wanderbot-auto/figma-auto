@@ -10,9 +10,9 @@
     "build:bridge": "npm run build -w @figma-auto/protocol && npm run build -w @figma-auto/mcp-bridge",
     "build:plugin": "npm run build -w @figma-auto/figma-plugin",
     "build": "npm run build -w @figma-auto/protocol && npm run build -w @figma-auto/mcp-bridge && npm run build -w @figma-auto/figma-plugin",
-    "dev:bridge": "sh scripts/start-local-bridge.sh --skip-build",
-    "paths:local": "sh scripts/start-local-bridge.sh --print-config",
-    "start:local": "sh scripts/start-local-bridge.sh",
+    "dev:bridge": "node scripts/start-local-bridge.mjs --skip-build",
+    "paths:local": "node scripts/start-local-bridge.mjs --print-config",
+    "start:local": "node scripts/start-local-bridge.mjs",
     "test": "npm run test -w @figma-auto/protocol && npm run test -w @figma-auto/mcp-bridge"
   },
   "devDependencies": {

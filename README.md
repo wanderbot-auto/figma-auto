@@ -31,6 +31,30 @@ npm run start:local
 
 Then load `apps/figma-plugin/manifest.json` as a local plugin in Figma and run it in the target file.
 
+## Windows
+
+Windows is supported for local development and bridge startup.
+
+In PowerShell, from the repo root:
+
+```powershell
+npm install
+npm run build
+npm run start:local
+```
+
+Then import `apps/figma-plugin/manifest.json` into Figma Desktop as a local plugin and run it in the target file.
+
+If you need a custom local port on Windows, keep using `localhost` and set the env vars before rebuilding:
+
+```powershell
+$env:FIGMA_AUTO_BRIDGE_PORT="4318"
+$env:FIGMA_AUTO_BRIDGE_WS_URL="ws://localhost:4318"
+$env:FIGMA_AUTO_BRIDGE_HTTP_URL="http://localhost:4318"
+npm run build
+npm run start:local
+```
+
 ## Docs
 
 - `docs/local-dev.md`: local commands, env vars, troubleshooting
