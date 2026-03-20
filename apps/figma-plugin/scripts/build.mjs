@@ -3,11 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const pluginRoot = path.resolve(import.meta.dirname, "..");
-const distDir = path.join(pluginRoot, "dist");
 const uiTemplatePath = path.join(pluginRoot, "ui", "index.html");
 const manifestTemplatePath = path.join(pluginRoot, "manifest.template.json");
-const manifestPath = path.join(pluginRoot, "manifest.json");
 const protocolMessagesPath = path.resolve(pluginRoot, "../../packages/protocol/src/messages.ts");
+const instanceName = resolveInstanceName(process.env.FIGMA_AUTO_LOCAL_INSTANCE);
+const outputRoot = instanceName ? path.join(pluginRoot, "instances", instanceName) : pluginRoot;
+const distDir = path.join(outputRoot, "dist");
+const manifestPath = path.join(outputRoot, "manifest.json");
 
 async function readProtocolConstants() {
   const protocolSource = await fs.readFile(protocolMessagesPath, "utf8");
@@ -65,7 +67,28 @@ function canonicalizeLocalUrl(rawUrl) {
 }
 
 function resolvePluginId() {
-  return process.env.FIGMA_AUTO_FIGMA_PLUGIN_ID ?? "REPLACE_WITH_FIGMA_PLUGIN_ID";
+  return process.env.FIGMA_AUTO_FIGMA_PLUGIN_ID ?? defaultPluginId();
+}
+
+function resolveInstanceName(rawValue) {
+  if (!rawValue) {
+    return "";
+  }
+
+  const normalized = rawValue.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+  return normalized.replace(/^-+|-+$/g, "");
+}
+
+function defaultPluginId() {
+  if (!instanceName) {
+    return "REPLACE_WITH_FIGMA_PLUGIN_ID";
+  }
+
+  return `LOCAL_FIGMA_AUTO_${instanceName.replace(/[^a-z0-9]+/g, "_").toUpperCase()}`;
+}
+
+function resolvePluginName(baseName) {
+  return instanceName ? `${baseName} (${instanceName})` : baseName;
 }
 
 await fs.mkdir(distDir, { recursive: true });
@@ -78,6 +101,7 @@ const manifestTemplate = JSON.parse(await fs.readFile(manifestTemplatePath, "utf
 const allowedDomains = [bridgeHttpUrl, bridgeWsUrl];
 const manifest = {
   ...manifestTemplate,
+  name: resolvePluginName(manifestTemplate.name),
   id: resolvePluginId(),
   networkAccess: {
     ...manifestTemplate.networkAccess,
@@ -112,7 +136,7 @@ await esbuild.build({
 
 const uiTemplate = await fs.readFile(uiTemplatePath, "utf8");
 const uiScript = await fs.readFile(path.join(distDir, "ui.js"), "utf8");
-const uiHtml = uiTemplate.replace("__FIGMA_AUTO_UI_SCRIPT__", uiScript);
+const uiHtml = uiTemplate.replace("__FIGMA_AUTO_UI_SCRIPT__", () => uiScript);
 
 await fs.writeFile(path.join(distDir, "ui.html"), uiHtml, "utf8");
 await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

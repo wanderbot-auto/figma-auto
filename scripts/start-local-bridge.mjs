@@ -11,20 +11,40 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, "..");
 const logsDir = path.join(rootDir, "logs");
 const bridgeEntryPath = path.join(rootDir, "apps", "mcp-bridge", "dist", "index.js");
-const manifestPath = path.join(rootDir, "apps", "figma-plugin", "manifest.json");
-const pluginDistDir = path.join(rootDir, "apps", "figma-plugin", "dist");
+const pluginRoot = path.join(rootDir, "apps", "figma-plugin");
 const protocolMessagesPath = path.join(rootDir, "packages", "protocol", "src", "messages.ts");
 
 let printConfigOnly = false;
 let skipBuild = false;
+let requestedInstance = process.env.FIGMA_AUTO_LOCAL_INSTANCE ?? "";
+let requestedPort = process.env.FIGMA_AUTO_BRIDGE_PORT ?? "";
 
-for (const arg of process.argv.slice(2)) {
+for (let index = 0; index < process.argv.length - 2; index += 1) {
+  const arg = process.argv[index + 2];
   if (arg === "--print-config") {
     printConfigOnly = true;
     continue;
   }
   if (arg === "--skip-build") {
     skipBuild = true;
+    continue;
+  }
+  if (arg === "--instance") {
+    requestedInstance = process.argv[index + 3] ?? "";
+    index += 1;
+    continue;
+  }
+  if (arg.startsWith("--instance=")) {
+    requestedInstance = arg.slice("--instance=".length);
+    continue;
+  }
+  if (arg === "--port") {
+    requestedPort = process.argv[index + 3] ?? "";
+    index += 1;
+    continue;
+  }
+  if (arg.startsWith("--port=")) {
+    requestedPort = arg.slice("--port=".length);
     continue;
   }
   console.error(`Unknown argument: ${arg}`);
@@ -51,10 +71,43 @@ async function resolveDefaultBridgePort() {
   return Number.parseInt(bridgePortMatch[1], 10);
 }
 
+function resolveInstanceName(rawValue) {
+  if (!rawValue) {
+    return "";
+  }
+
+  const normalized = rawValue.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+  return normalized.replace(/^-+|-+$/g, "");
+}
+
+function deriveInstancePort(defaultPort, instanceName) {
+  let hash = 0;
+  for (const character of instanceName) {
+    hash = (hash * 31 + character.charCodeAt(0)) % 1000;
+  }
+  return defaultPort + 1 + hash;
+}
+
+function resolvePluginPaths(instanceName) {
+  if (!instanceName) {
+    return {
+      manifestPath: path.join(pluginRoot, "manifest.json"),
+      pluginDistDir: path.join(pluginRoot, "dist")
+    };
+  }
+
+  const instanceRoot = path.join(pluginRoot, "instances", instanceName);
+  return {
+    manifestPath: path.join(instanceRoot, "manifest.json"),
+    pluginDistDir: path.join(instanceRoot, "dist")
+  };
+}
+
 function printConfig(config) {
   console.log("Local Figma bridge config:");
-  console.log(`- manifest: ${formatPath(manifestPath)}`);
-  console.log(`- plugin dist: ${formatPath(pluginDistDir)}`);
+  console.log(`- instance: ${config.instanceName || "default"}`);
+  console.log(`- manifest: ${formatPath(config.manifestPath)}`);
+  console.log(`- plugin dist: ${formatPath(config.pluginDistDir)}`);
   console.log(`- bridge entry: ${formatPath(bridgeEntryPath)}`);
   console.log(`- bridge stdout log: ${formatPath(config.bridgeLogPath)}`);
   console.log(`- audit log: ${formatPath(config.auditLogPath)}`);
@@ -100,25 +153,32 @@ function signalExitCode(signal) {
 }
 
 const defaultBridgePort = await resolveDefaultBridgePort();
-const bridgePort = Number.parseInt(process.env.FIGMA_AUTO_BRIDGE_PORT ?? `${defaultBridgePort}`, 10);
+const instanceName = resolveInstanceName(requestedInstance);
+const fallbackBridgePort = instanceName ? deriveInstancePort(defaultBridgePort, instanceName) : defaultBridgePort;
+const bridgePort = Number.parseInt(requestedPort || `${fallbackBridgePort}`, 10);
 const resolvedBridgePort = Number.isNaN(bridgePort) ? defaultBridgePort : bridgePort;
 const bridgeHost = process.env.FIGMA_AUTO_BRIDGE_HOST ?? "localhost";
 const bridgeWsUrl = process.env.FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL ?? `ws://${bridgeHost}:${resolvedBridgePort}`;
 const bridgeHttpUrl =
   process.env.FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL
   ?? bridgeWsUrl.replace(/^ws:/, "http:").replace(/^wss:/, "https:");
-const bridgeLogPath = process.env.FIGMA_AUTO_BRIDGE_LOG_PATH ?? path.join(logsDir, "bridge.log");
-const auditLogPath = process.env.FIGMA_AUTO_AUDIT_LOG_PATH ?? path.join(logsDir, "audit.ndjson");
+const instanceLogDir = instanceName ? path.join(logsDir, instanceName) : logsDir;
+const bridgeLogPath = process.env.FIGMA_AUTO_BRIDGE_LOG_PATH ?? path.join(instanceLogDir, "bridge.log");
+const auditLogPath = process.env.FIGMA_AUTO_AUDIT_LOG_PATH ?? path.join(instanceLogDir, "audit.ndjson");
+const { manifestPath, pluginDistDir } = resolvePluginPaths(instanceName);
 
 const config = {
   auditLogPath,
   bridgeHttpUrl,
   bridgeLogPath,
+  instanceName,
+  manifestPath,
+  pluginDistDir,
   bridgePort: resolvedBridgePort,
   bridgeWsUrl
 };
 
-await mkdir(logsDir, { recursive: true });
+await mkdir(instanceLogDir, { recursive: true });
 printConfig(config);
 
 if (printConfigOnly) {
@@ -134,6 +194,7 @@ if (!skipBuild) {
       cwd: rootDir,
       env: {
         ...process.env,
+        FIGMA_AUTO_LOCAL_INSTANCE: instanceName,
         FIGMA_AUTO_BRIDGE_PORT: `${resolvedBridgePort}`,
         FIGMA_AUTO_BRIDGE_WS_URL: bridgeWsUrl,
         FIGMA_AUTO_BRIDGE_HTTP_URL: bridgeHttpUrl
@@ -151,6 +212,7 @@ const bridgeProcess = spawn(process.execPath, [bridgeEntryPath], {
   cwd: rootDir,
   env: {
     ...process.env,
+    FIGMA_AUTO_LOCAL_INSTANCE: instanceName,
     FIGMA_AUTO_BRIDGE_PORT: `${resolvedBridgePort}`,
     FIGMA_AUTO_BRIDGE_HOST: bridgeHost,
     FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL: bridgeWsUrl,

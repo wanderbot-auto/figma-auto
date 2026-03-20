@@ -58,6 +58,7 @@ npm run start:local
 ## Docs
 
 - `docs/local-dev.md`: local commands, env vars, troubleshooting
+- `docs/macos-menu-bar-app.md`: macOS status bar app for managing multiple bridge instances
 - `docs/tool-surface.md`: current MCP tools and important limits
 - `docs/architecture.md`: module boundaries and request flow
 - `docs/manual-test-checklist.md`: production-oriented manual validation checklist
