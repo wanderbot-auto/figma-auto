@@ -1,4 +1,11 @@
 import { z } from "zod";
+import type {
+  PrototypeAction,
+  PrototypeConditionalBlock,
+  PrototypeExpression,
+  PrototypeReaction,
+  PrototypeVariableData
+} from "./messages.js";
 
 import {
   MAX_NORMALIZE_NAME_RESULTS,
@@ -135,9 +142,242 @@ export const variableModeValueSchema = z.union([
   colorValueSchema,
   variableAliasValueSchema
 ]);
+export const vectorValueSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite()
+});
+export const overflowDirectionSchema = z.enum(["NONE", "HORIZONTAL", "VERTICAL", "BOTH"]);
+export const prototypeNavigationSchema = z.enum(["NAVIGATE", "SWAP", "OVERLAY", "SCROLL_TO", "CHANGE_TO"]);
+export const prototypeEasingSchema = z.object({
+  type: z.enum([
+    "EASE_IN",
+    "EASE_OUT",
+    "EASE_IN_AND_OUT",
+    "LINEAR",
+    "EASE_IN_BACK",
+    "EASE_OUT_BACK",
+    "EASE_IN_AND_OUT_BACK",
+    "CUSTOM_CUBIC_BEZIER",
+    "GENTLE",
+    "QUICK",
+    "BOUNCY",
+    "SLOW",
+    "CUSTOM_SPRING"
+  ]),
+  easingFunctionCubicBezier: z.object({
+    x1: z.number().finite(),
+    y1: z.number().finite(),
+    x2: z.number().finite(),
+    y2: z.number().finite()
+  }).optional(),
+  easingFunctionSpring: z.object({
+    mass: z.number().finite(),
+    stiffness: z.number().finite(),
+    damping: z.number().finite(),
+    initialVelocity: z.number().finite()
+  }).optional()
+});
+export const prototypeTransitionSchema = z.union([
+  z.object({
+    type: z.enum(["DISSOLVE", "SMART_ANIMATE", "SCROLL_ANIMATE"]),
+    easing: prototypeEasingSchema,
+    duration: z.number().finite()
+  }),
+  z.object({
+    type: z.enum(["MOVE_IN", "MOVE_OUT", "PUSH", "SLIDE_IN", "SLIDE_OUT"]),
+    direction: z.enum(["LEFT", "RIGHT", "TOP", "BOTTOM"]),
+    matchLayers: z.boolean(),
+    easing: prototypeEasingSchema,
+    duration: z.number().finite()
+  })
+]);
+export const prototypeTriggerSchema = z.union([
+  z.object({
+    type: z.enum(["ON_CLICK", "ON_HOVER", "ON_PRESS", "ON_DRAG"])
+  }),
+  z.object({
+    type: z.literal("AFTER_TIMEOUT"),
+    timeout: z.number().finite()
+  }),
+  z.object({
+    type: z.enum(["MOUSE_UP", "MOUSE_DOWN"]),
+    delay: z.number().finite()
+  }),
+  z.object({
+    type: z.enum(["MOUSE_ENTER", "MOUSE_LEAVE"]),
+    delay: z.number().finite(),
+    deprecatedVersion: z.boolean()
+  }),
+  z.object({
+    type: z.literal("ON_KEY_DOWN"),
+    device: z.enum(["KEYBOARD", "XBOX_ONE", "PS4", "SWITCH_PRO", "UNKNOWN_CONTROLLER"]),
+    keyCodes: z.array(z.number().int()).min(1)
+  }),
+  z.object({
+    type: z.literal("ON_MEDIA_HIT"),
+    mediaHitTime: z.number().finite()
+  }),
+  z.object({
+    type: z.literal("ON_MEDIA_END")
+  })
+]);
+export const prototypeVariableDataTypeSchema = z.enum([
+  "BOOLEAN",
+  "FLOAT",
+  "STRING",
+  "VARIABLE_ALIAS",
+  "COLOR",
+  "EXPRESSION"
+]);
+export const prototypeExpressionFunctionSchema = z.enum([
+  "ADDITION",
+  "SUBTRACTION",
+  "MULTIPLICATION",
+  "DIVISION",
+  "EQUALS",
+  "NOT_EQUAL",
+  "LESS_THAN",
+  "LESS_THAN_OR_EQUAL",
+  "GREATER_THAN",
+  "GREATER_THAN_OR_EQUAL",
+  "AND",
+  "OR",
+  "VAR_MODE_LOOKUP",
+  "NEGATE",
+  "NOT"
+]);
+
+export const prototypeVariableDataSchema: z.ZodType<PrototypeVariableData> = z.lazy(() => z.object({
+  type: prototypeVariableDataTypeSchema.optional(),
+  resolvedType: variableResolvedTypeSchema.optional(),
+  value: z.union([
+    z.boolean(),
+    z.number().finite(),
+    z.string(),
+    colorValueSchema,
+    variableAliasValueSchema,
+    prototypeExpressionSchema
+  ]).optional()
+}));
+
+export const prototypeExpressionSchema: z.ZodType<PrototypeExpression> = z.lazy(() => z.object({
+  expressionFunction: prototypeExpressionFunctionSchema,
+  expressionArguments: z.array(prototypeVariableDataSchema)
+}));
+
+export const prototypeConditionalBlockSchema: z.ZodType<PrototypeConditionalBlock> = z.lazy(() => z.object({
+  condition: prototypeVariableDataSchema.optional(),
+  actions: z.array(prototypeActionSchema).min(1)
+}));
+
+const updateMediaRuntimeActionSchema = z.object({
+  type: z.literal("UPDATE_MEDIA_RUNTIME"),
+  destinationId: z.string().min(1).nullable().optional(),
+  mediaAction: z.enum([
+    "PLAY",
+    "PAUSE",
+    "TOGGLE_PLAY_PAUSE",
+    "MUTE",
+    "UNMUTE",
+    "TOGGLE_MUTE_UNMUTE",
+    "SKIP_FORWARD",
+    "SKIP_BACKWARD",
+    "SKIP_TO"
+  ]),
+  amountToSkip: z.number().finite().optional(),
+  newTimestamp: z.number().finite().optional()
+}).superRefine((payload, context) => {
+  const requiresAmount = payload.mediaAction === "SKIP_FORWARD" || payload.mediaAction === "SKIP_BACKWARD";
+  if (requiresAmount && payload.amountToSkip === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${payload.mediaAction} requires amountToSkip`,
+      path: ["amountToSkip"]
+    });
+  }
+  if (!requiresAmount && payload.amountToSkip !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "amountToSkip is only supported for SKIP_FORWARD and SKIP_BACKWARD",
+      path: ["amountToSkip"]
+    });
+  }
+
+  if (payload.mediaAction === "SKIP_TO" && payload.newTimestamp === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "SKIP_TO requires newTimestamp",
+      path: ["newTimestamp"]
+    });
+  }
+  if (payload.mediaAction !== "SKIP_TO" && payload.newTimestamp !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "newTimestamp is only supported for SKIP_TO",
+      path: ["newTimestamp"]
+    });
+  }
+});
+
+export const prototypeActionSchema: z.ZodType<PrototypeAction> = z.lazy(() => z.union([
+  z.object({
+    type: z.enum(["BACK", "CLOSE"])
+  }),
+  z.object({
+    type: z.literal("URL"),
+    url: z.string().trim().min(1),
+    openInNewTab: z.boolean().optional()
+  }),
+  updateMediaRuntimeActionSchema,
+  z.object({
+    type: z.literal("SET_VARIABLE"),
+    variableId: z.string().min(1).nullable(),
+    variableValue: prototypeVariableDataSchema.optional()
+  }),
+  z.object({
+    type: z.literal("SET_VARIABLE_MODE"),
+    variableCollectionId: z.string().min(1).nullable(),
+    variableModeId: z.string().min(1).nullable()
+  }),
+  z.object({
+    type: z.literal("CONDITIONAL"),
+    conditionalBlocks: z.array(prototypeConditionalBlockSchema).min(1)
+  }),
+  z.object({
+    type: z.literal("NODE"),
+    destinationId: z.string().min(1).nullable(),
+    navigation: prototypeNavigationSchema,
+    transition: prototypeTransitionSchema.nullable().optional(),
+    preserveScrollPosition: z.boolean().optional(),
+    overlayRelativePosition: vectorValueSchema.optional(),
+    resetVideoPosition: z.boolean().optional(),
+    resetScrollPosition: z.boolean().optional(),
+    resetInteractiveComponents: z.boolean().optional()
+  })
+]));
+
+export const prototypeReactionSchema: z.ZodType<PrototypeReaction> = z.lazy(() => z.object({
+  action: prototypeActionSchema.optional(),
+  actions: z.array(prototypeActionSchema).min(1).optional(),
+  trigger: prototypeTriggerSchema.nullable()
+}).superRefine((payload, context) => {
+  if (payload.action || payload.actions?.length) {
+    return;
+  }
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Reaction requires action or actions",
+    path: ["actions"]
+  });
+}));
 
 export const getNodePayloadSchema = z.object({
   nodeId: z.string().min(1)
+});
+
+export const getFlowPayloadSchema = z.object({
+  pageId: z.string().min(1).optional()
 });
 
 export const getNodeTreePayloadSchema = z.object({
@@ -315,6 +555,11 @@ export const setImageFillPayloadSchema = z.object({
     message: "paintIndex > 0 requires preserveOtherFills=true",
     path: ["paintIndex"]
   });
+});
+
+export const setReactionsPayloadSchema = z.object({
+  nodeId: z.string().min(1),
+  reactions: z.array(prototypeReactionSchema).max(100)
 });
 
 export const applyStylesPayloadSchema = z.object({

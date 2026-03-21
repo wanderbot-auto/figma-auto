@@ -1,4 +1,8 @@
-import type { SessionRegistrationPayload } from "@figma-auto/protocol";
+import {
+  SESSION_REPLACED_CLOSE_CODE,
+  SESSION_REPLACED_CLOSE_REASON,
+  type SessionRegistrationPayload
+} from "@figma-auto/protocol";
 import type WebSocket from "ws";
 
 import { ProtocolFailure } from "../errors.js";
@@ -16,7 +20,7 @@ export class PluginSessionStore {
   register(context: SessionRegistrationPayload, socket: WebSocket): ActivePluginSession {
     const timestamp = new Date().toISOString();
     if (this.activeSession && this.activeSession.socket !== socket) {
-      this.activeSession.socket.close();
+      this.activeSession.socket.close(SESSION_REPLACED_CLOSE_CODE, SESSION_REPLACED_CLOSE_REASON);
     }
 
     const connectedAt =

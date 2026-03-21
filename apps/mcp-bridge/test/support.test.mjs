@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { SESSION_REPLACED_CLOSE_CODE, SESSION_REPLACED_CLOSE_REASON } from "@figma-auto/protocol";
 import { AuditLogger } from "../dist/logging/audit-log.js";
 import { BridgeLogger } from "../dist/logging/bridge-log.js";
 import { validationIssuesToProtocolError } from "../dist/errors.js";
@@ -13,10 +14,14 @@ class FakeSocket {
   constructor(name) {
     this.name = name;
     this.closed = false;
+    this.closeCode = undefined;
+    this.closeReason = undefined;
   }
 
-  close() {
+  close(code, reason) {
     this.closed = true;
+    this.closeCode = code;
+    this.closeReason = reason;
   }
 }
 
@@ -44,6 +49,8 @@ test("session store keeps only one active session", () => {
   }, secondSocket);
 
   assert.equal(firstSocket.closed, true);
+  assert.equal(firstSocket.closeCode, SESSION_REPLACED_CLOSE_CODE);
+  assert.equal(firstSocket.closeReason, SESSION_REPLACED_CLOSE_REASON);
   assert.equal(store.getActive().context.sessionId, "sess_2");
 });
 

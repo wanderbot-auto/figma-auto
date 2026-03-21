@@ -6,6 +6,9 @@ export type EffectStyleNode = SceneNode & {
   setEffectStyleIdAsync(styleId: string): Promise<void>;
 };
 
+export type ReactionNode = SceneNode & ReactionMixin;
+export type FramePrototypingNode = SceneNode & FramePrototypingMixin;
+
 export function hasChildren(node: BaseNode): node is ChildContainerNode {
   return "children" in node;
 }
@@ -66,6 +69,14 @@ export function hasClipsContent(node: BaseNode): node is BaseNode & BaseFrameMix
   return "clipsContent" in node;
 }
 
+export function hasReactions(node: BaseNode): node is ReactionNode {
+  return "reactions" in node && "setReactionsAsync" in node;
+}
+
+export function hasFramePrototyping(node: BaseNode): node is FramePrototypingNode {
+  return "overflowDirection" in node;
+}
+
 export async function requireBaseNode(nodeId: string): Promise<BaseNode> {
   const node = await figma.getNodeByIdAsync(nodeId);
   if (!node) {
@@ -79,6 +90,28 @@ export async function requireSceneNode(nodeId: string): Promise<SceneNode> {
   const node = await requireBaseNode(nodeId);
   if (!isSceneNode(node)) {
     throw new Error(`Node ${nodeId} is not a scene node`);
+  }
+
+  return node;
+}
+
+export async function requireReactionNode(nodeId: string): Promise<ReactionNode> {
+  const node = await requireSceneNode(nodeId);
+  if (!hasReactions(node)) {
+    throw new Error(`Node ${nodeId} does not support prototyping reactions`);
+  }
+
+  return node;
+}
+
+export async function requirePageNode(pageId?: string): Promise<PageNode> {
+  if (!pageId) {
+    return figma.currentPage;
+  }
+
+  const node = await requireBaseNode(pageId);
+  if (node.type !== "PAGE") {
+    throw new Error(`Node ${pageId} is not a page`);
   }
 
   return node;

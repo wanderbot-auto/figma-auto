@@ -8,20 +8,23 @@
       :root {
         color-scheme: light;
         font-family: "Avenir Next", "Segoe UI", sans-serif;
-        --bg-top: #f5efe2;
-        --bg-bottom: #dbe7e6;
-        --panel: rgba(255, 255, 255, 0.82);
-        --panel-border: rgba(23, 44, 61, 0.08);
-        --ink: #142033;
-        --muted: #5f6b78;
-        --accent: #0f766e;
-        --accent-soft: rgba(15, 118, 110, 0.12);
-        --warn: #a16207;
-        --warn-soft: rgba(161, 98, 7, 0.14);
-        --danger: #b42318;
-        --danger-soft: rgba(180, 35, 24, 0.12);
-        --line: rgba(20, 32, 51, 0.08);
-        --shadow: 0 20px 40px rgba(20, 32, 51, 0.12);
+        --bg: #f8fafc;
+        --bg-accent: #eff6ff;
+        --panel: #ffffff;
+        --panel-border: #f1f5f9;
+        --title: #45556c;
+        --ink: #334155;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --blue: #3178c6;
+        --blue-soft: rgba(49, 120, 198, 0.1);
+        --orange: #dea584;
+        --orange-soft: rgba(222, 165, 132, 0.14);
+        --yellow: #f1e05a;
+        --yellow-soft: rgba(241, 224, 90, 0.18);
+        --purple: #563d7c;
+        --purple-soft: rgba(86, 61, 124, 0.12);
+        --shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
       }
 
       body {
@@ -29,9 +32,8 @@
         min-height: 100vh;
         padding: 16px;
         background:
-          radial-gradient(circle at top right, rgba(15, 118, 110, 0.16), transparent 28%),
-          radial-gradient(circle at bottom left, rgba(219, 142, 76, 0.18), transparent 24%),
-          linear-gradient(160deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+          linear-gradient(180deg, rgba(49, 120, 198, 0.04) 0%, rgba(49, 120, 198, 0) 120px),
+          linear-gradient(180deg, var(--bg-accent) 0%, var(--bg) 100%);
         color: var(--ink);
         box-sizing: border-box;
       }
@@ -42,29 +44,21 @@
 
       .shell {
         display: grid;
+        min-height: calc(100vh - 32px);
+        grid-template-rows: auto minmax(0, 1fr) auto;
         gap: 12px;
       }
 
       .panel {
         border: 1px solid var(--panel-border);
-        border-radius: 18px;
-        padding: 14px;
+        border-radius: 16px;
+        padding: 16px;
         background: var(--panel);
         box-shadow: var(--shadow);
-        backdrop-filter: blur(14px);
       }
 
       .hero {
-        padding: 16px;
-      }
-
-      .eyebrow {
-        margin-bottom: 8px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--accent);
+        padding: 14px 16px;
       }
 
       .hero-row,
@@ -77,8 +71,8 @@
       }
 
       .hero-actions {
-        margin-top: 14px;
-        align-items: flex-end;
+        margin-top: 10px;
+        align-items: center;
       }
 
       h1,
@@ -88,8 +82,9 @@
       }
 
       h1 {
-        font-size: 20px;
+        font-size: 16px;
         line-height: 1.2;
+        color: var(--title);
       }
 
       h2 {
@@ -111,8 +106,20 @@
       }
 
       .lede {
-        margin-top: 6px;
-        max-width: 28ch;
+        margin-top: 8px;
+        max-width: 34ch;
+      }
+
+      .hero-status {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .hero-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
 
       .badge {
@@ -121,6 +128,7 @@
         gap: 6px;
         padding: 6px 10px;
         border-radius: 999px;
+        border: 1px solid transparent;
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.04em;
@@ -137,120 +145,200 @@
 
       .badge-idle,
       .badge-running {
-        color: var(--accent);
-        background: var(--accent-soft);
+        color: var(--blue);
+        background: var(--blue-soft);
+        border-color: rgba(49, 120, 198, 0.12);
       }
 
       .badge-success {
-        color: #176448;
-        background: rgba(23, 100, 72, 0.12);
+        color: var(--blue);
+        background: var(--blue-soft);
+        border-color: rgba(49, 120, 198, 0.12);
       }
 
       .badge-preview {
-        color: var(--warn);
-        background: var(--warn-soft);
+        color: #9a6b4f;
+        background: var(--orange-soft);
+        border-color: rgba(222, 165, 132, 0.16);
       }
 
       .badge-failed,
       .badge-error {
-        color: var(--danger);
-        background: var(--danger-soft);
+        color: var(--purple);
+        background: var(--purple-soft);
+        border-color: rgba(86, 61, 124, 0.14);
       }
 
       .badge-disconnected {
-        color: #7a4f01;
-        background: rgba(122, 79, 1, 0.14);
+        color: #8f7f15;
+        background: var(--yellow-soft);
+        border-color: rgba(241, 224, 90, 0.2);
       }
 
       button {
-        border: 0;
+        border: 1px solid rgba(49, 120, 198, 0.14);
         border-radius: 999px;
         padding: 9px 14px;
-        background: linear-gradient(135deg, #142033 0%, #28445d 100%);
-        color: white;
+        background: var(--panel);
+        color: var(--blue);
         cursor: pointer;
         font: inherit;
         font-size: 12px;
         font-weight: 700;
-        box-shadow: 0 10px 24px rgba(20, 32, 51, 0.18);
+        box-shadow: 0 4px 16px rgba(49, 120, 198, 0.08);
       }
 
       button:hover {
-        filter: brightness(1.03);
+        background: var(--bg-accent);
       }
 
       .current-title {
-        margin-top: 12px;
-        font-size: 18px;
+        margin-top: 10px;
+        font-size: 16px;
         font-weight: 700;
         line-height: 1.3;
+        color: var(--title);
       }
 
       .current-detail {
-        margin-top: 6px;
-        font-size: 13px;
-        line-height: 1.5;
+        margin-top: 4px;
+        font-size: 12px;
+        line-height: 1.45;
       }
 
       .action-meta {
-        margin-top: 10px;
+        margin-top: 6px;
+      }
+
+      .actions-panel {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+
+      .panel-tone-idle {
+        border-color: var(--panel-border);
+      }
+
+      .panel-tone-running,
+      .panel-tone-success {
+        border-color: rgba(49, 120, 198, 0.22);
+        box-shadow:
+          inset 3px 0 0 rgba(49, 120, 198, 0.95),
+          var(--shadow);
+      }
+
+      .panel-tone-preview {
+        border-color: rgba(222, 165, 132, 0.3);
+        box-shadow:
+          inset 3px 0 0 rgba(222, 165, 132, 0.95),
+          var(--shadow);
+      }
+
+      .panel-tone-failed {
+        border-color: rgba(86, 61, 124, 0.24);
+        box-shadow:
+          inset 3px 0 0 rgba(86, 61, 124, 0.95),
+          var(--shadow);
+      }
+
+      .history-label {
+        margin-top: 12px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
       }
 
       .history-list {
         list-style: none;
         display: grid;
-        gap: 10px;
-        margin: 12px 0 0;
+        flex: 1 1 auto;
+        gap: 8px;
+        margin: 10px 0 0;
         padding: 0;
-        max-height: 236px;
+        max-height: none;
         overflow: auto;
       }
 
-      .history-item {
-        padding: 12px;
-        border: 1px solid var(--line);
+      .actions-empty {
+        display: grid;
+        place-items: center;
+        flex: 1 1 auto;
+        min-height: 260px;
+        margin-top: 12px;
+        border: 1px dashed var(--line);
         border-radius: 14px;
-        background: rgba(255, 255, 255, 0.72);
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        text-align: center;
+        padding: 24px 18px;
       }
 
-      .history-top {
+      .actions-empty.hidden {
+        display: none;
+      }
+
+      .actions-empty-title {
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.35;
+        color: var(--title);
+      }
+
+      .actions-empty-copy {
+        margin-top: 6px;
+        max-width: 26ch;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+
+      .history-item {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--panel-border);
+        border-radius: 12px;
+        background: #fcfdff;
+      }
+
+      .history-main {
+        min-width: 0;
       }
 
       .history-title {
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         line-height: 1.35;
-      }
-
-      .history-summary {
-        margin-top: 6px;
-        font-size: 12px;
-        line-height: 1.5;
-        color: var(--ink);
+        color: var(--title);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .history-meta {
-        margin-top: 6px;
         font-size: 11px;
         line-height: 1.4;
         color: var(--muted);
+        white-space: nowrap;
       }
 
       .context-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-        margin-top: 12px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
       }
 
       .context-item {
-        padding: 10px 12px;
-        border-radius: 14px;
-        background: rgba(20, 32, 51, 0.05);
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 1px solid var(--panel-border);
+        background: #fcfdff;
       }
 
       .context-label {
@@ -262,9 +350,10 @@
       }
 
       .context-value {
-        margin-top: 6px;
+        margin-top: 4px;
         font-family: "SF Mono", "Roboto Mono", monospace;
-        font-size: 11px;
+        font-size: 10px;
+        line-height: 1.45;
         color: var(--ink);
         word-break: break-word;
       }
@@ -272,39 +361,49 @@
       .muted {
         color: var(--muted);
       }
+
+      .history-list::-webkit-scrollbar {
+        width: 10px;
+      }
+
+      .history-list::-webkit-scrollbar-thumb {
+        border: 3px solid transparent;
+        border-radius: 999px;
+        background: #cbd5e1;
+        background-clip: padding-box;
+      }
     </style>
   </head>
   <body>
     <div class="shell">
       <section class="panel hero">
-        <div class="eyebrow">Local Figma Control</div>
         <div class="hero-row">
-          <div>
-            <h1>Figma Auto Bridge</h1>
-            <p class="lede">Track bridge health, live design actions, and the recent changes applied through this plugin.</p>
+          <div class="hero-status">
+            <h1>Bridge</h1>
+            <p id="status-message" class="status-message">Boot HTML loaded. Waiting for UI script...</p>
           </div>
-          <div id="bridge-badge" class="badge badge-idle">Waiting</div>
-        </div>
-        <div class="hero-actions">
-          <p id="status-message" class="status-message">Boot HTML loaded. Waiting for UI script...</p>
+          <div class="hero-controls">
+            <div id="bridge-badge" class="badge badge-idle">Waiting</div>
           <button id="reconnect" type="button">Reconnect</button>
+          </div>
         </div>
       </section>
 
-      <section class="panel">
+      <section id="actions-panel" class="panel actions-panel panel-tone-idle">
         <div class="section-head">
-          <h2>Current Action</h2>
+          <h2>Actions</h2>
           <div id="current-badge" class="badge badge-idle">Idle</div>
         </div>
         <div id="current-title" class="current-title">Waiting for the next design action</div>
         <p id="current-detail" class="current-detail muted">Committed writes and previews will appear here while the plugin is working.</p>
         <p id="current-meta" class="action-meta">No design action is running right now.</p>
-      </section>
-
-      <section class="panel">
-        <div class="section-head">
-          <h2>Recent Design Actions</h2>
+        <div id="actions-empty" class="actions-empty hidden">
+          <div>
+            <div class="actions-empty-title">No actions yet</div>
+            <p class="actions-empty-copy">Run bridge commands from this file and recent activity will appear here.</p>
+          </div>
         </div>
+        <div class="history-label">Recent</div>
         <ul id="history-list" class="history-list">
           <li class="history-empty">No tracked design actions yet.</li>
         </ul>

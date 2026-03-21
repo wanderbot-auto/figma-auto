@@ -19,6 +19,8 @@ import type {
   MoveNodeResult,
   RenameNodePayload,
   RenameNodeResult,
+  SetReactionsPayload,
+  SetReactionsResult,
   SetTextPayload,
   SetTextResult
 } from "@figma-auto/protocol";
@@ -27,8 +29,10 @@ import {
   type ChildContainerNode,
   requireChildContainer,
   requireComponentSource,
+  requireReactionNode,
   requireSceneNode
 } from "./node-helpers.js";
+import { deserializeReactions } from "./prototype.js";
 import { describeNodeAsync, summarizeNode } from "./read.js";
 
 function hasClone(node: SceneNode): node is SceneNode & { clone(): SceneNode } {
@@ -259,6 +263,18 @@ export async function setText(payload: SetTextPayload): Promise<SetTextResult> {
   return {
     node: summarizeNode(node),
     text: node.characters
+  };
+}
+
+export async function setReactions(payload: SetReactionsPayload): Promise<SetReactionsResult> {
+  const node = await requireReactionNode(payload.nodeId);
+  const reactions = await deserializeReactions(payload.reactions);
+
+  await node.setReactionsAsync(reactions);
+
+  return {
+    node: await describeNodeAsync(node),
+    reactionCount: node.reactions.length
   };
 }
 

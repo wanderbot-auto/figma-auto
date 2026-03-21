@@ -18,6 +18,7 @@ import {
   extractDesignTokensPayloadSchema,
   findNodesPayloadSchema,
   getComponentsPayloadSchema,
+  getFlowPayloadSchema,
   getStylesPayloadSchema,
   getVariablesPayloadSchema,
   getNodePayloadSchema,
@@ -27,6 +28,7 @@ import {
   renameNodePayloadSchema,
   setImageFillPayloadSchema,
   setInstancePropertiesPayloadSchema,
+  setReactionsPayloadSchema,
   setTextPayloadSchema,
   updateNodePropertiesPayloadSchema,
   type ApplyStylesResult,
@@ -34,6 +36,7 @@ import {
   type BatchEditV2Result,
   type BindVariableResult,
   type GetComponentsResult,
+  type GetFlowResult,
   type CreateComponentResult,
   type CreateFrameResult,
   type CreateInstanceResult,
@@ -65,6 +68,7 @@ import {
   type ResponseEnvelope,
   type SetImageFillResult,
   type SetInstancePropertiesResult,
+  type SetReactionsResult,
   type SetTextResult,
   type UpdateNodePropertiesResult
 } from "@figma-auto/protocol";
@@ -73,6 +77,7 @@ import { batchEdit } from "./handlers/batch.js";
 import { batchEditV2 } from "./handlers/batch-v2.js";
 import { getComponents } from "./handlers/components.js";
 import { createSpecPage, extractDesignTokens, normalizeNames } from "./handlers/high-level.js";
+import { getFlow } from "./handlers/prototype.js";
 import { findNodes, getCurrentPage, getFile, getNode, getNodeTree, getSelection, listPages, ping } from "./handlers/read.js";
 import { setImageFill } from "./handlers/set-image-fill.js";
 import { setInstanceProperties } from "./handlers/set-instance-properties.js";
@@ -92,16 +97,20 @@ import {
   duplicateNode,
   moveNode,
   renameNode,
+  setReactions,
   setText
 } from "./handlers/write.js";
 import type { PluginToUiMessage, UiToPluginMessage } from "./types.js";
 
 const pluginInstanceId = `plugin_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+let uiReady = false;
+let contextRetryTimer: number | null = null;
 
 type ToolResult =
   | PingResult
   | GetFileResult
   | GetCurrentPageResult
+  | GetFlowResult
   | GetSelectionResult
   | ListPagesResult
   | GetNodeResult
@@ -121,6 +130,7 @@ type ToolResult =
   | SetInstancePropertiesResult
   | SetImageFillResult
   | SetTextResult
+  | SetReactionsResult
   | ApplyStylesResult
   | UpdateNodePropertiesResult
   | MoveNodeResult
@@ -143,6 +153,28 @@ function postContext(): void {
     type: "plugin.context",
     context: buildPluginRuntimeContext(pluginInstanceId)
   });
+}
+
+function stopContextRetry(): void {
+  if (contextRetryTimer !== null) {
+    clearInterval(contextRetryTimer);
+    contextRetryTimer = null;
+  }
+}
+
+function startContextRetry(): void {
+  if (contextRetryTimer !== null) {
+    return;
+  }
+
+  contextRetryTimer = setInterval(() => {
+    if (uiReady) {
+      stopContextRetry();
+      return;
+    }
+
+    postContext();
+  }, 500) as unknown as number;
 }
 
 function success<TResult>(requestId: string, result: TResult): ResponseEnvelope<TResult> {
@@ -198,6 +230,8 @@ async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelop
         return success(request.requestId, getFile());
       case "figma.get_current_page":
         return success(request.requestId, getCurrentPage());
+      case "figma.get_flow":
+        return success(request.requestId, await getFlow(getFlowPayloadSchema.parse(request.payload)));
       case "figma.get_selection":
         return success(request.requestId, getSelection());
       case "figma.list_pages":
@@ -237,6 +271,8 @@ async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelop
         );
       case "figma.set_image_fill":
         return success(request.requestId, await setImageFill(setImageFillPayloadSchema.parse(request.payload)));
+      case "figma.set_reactions":
+        return success(request.requestId, await setReactions(setReactionsPayloadSchema.parse(request.payload)));
       case "figma.set_text":
         return success(request.requestId, await setText(setTextPayloadSchema.parse(request.payload)));
       case "figma.apply_styles":
@@ -286,12 +322,16 @@ async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelop
 
 figma.showUI(__html__, {
   width: 420,
-  height: 560,
+  height: 760,
   themeColors: true
 });
 
+startContextRetry();
+
 figma.ui.onmessage = async (message: UiToPluginMessage) => {
   if (message.type === "ui.ready") {
+    uiReady = true;
+    stopContextRetry();
     postContext();
     return;
   }

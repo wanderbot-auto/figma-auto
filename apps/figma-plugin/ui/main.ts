@@ -6,6 +6,8 @@ import { BridgeTransport, type BridgeConnectionState } from "./transport.js";
 const bridgeBadgeElement = document.getElementById("bridge-badge");
 const statusMessageElement = document.getElementById("status-message");
 const reconnectButton = document.getElementById("reconnect");
+const actionsPanelElement = document.getElementById("actions-panel");
+const actionsEmptyElement = document.getElementById("actions-empty");
 const currentBadgeElement = document.getElementById("current-badge");
 const currentTitleElement = document.getElementById("current-title");
 const currentDetailElement = document.getElementById("current-detail");
@@ -17,6 +19,8 @@ if (
   !bridgeBadgeElement
   || !statusMessageElement
   || !currentBadgeElement
+  || !actionsPanelElement
+  || !actionsEmptyElement
   || !currentTitleElement
   || !currentDetailElement
   || !currentMetaElement
@@ -29,6 +33,8 @@ if (
 
 const bridgeBadge = bridgeBadgeElement as HTMLElement;
 const statusMessage = statusMessageElement as HTMLElement;
+const actionsPanel = actionsPanelElement as HTMLElement;
+const actionsEmpty = actionsEmptyElement as HTMLElement;
 const currentBadge = currentBadgeElement as HTMLElement;
 const currentTitle = currentTitleElement as HTMLElement;
 const currentDetail = currentDetailElement as HTMLElement;
@@ -90,6 +96,7 @@ let bridgeState: BridgeConnectionState = "idle";
 let bridgeMessage = "UI script booted. Waiting for plugin context...";
 let runtimeContext: PluginRuntimeContext | null = null;
 let lastCompletedAction: TrackedAction | null = null;
+let readyPingTimer: number | null = null;
 
 window.addEventListener("error", (event) => {
   bridgeState = "error";
@@ -122,6 +129,10 @@ window.onmessage = (event: MessageEvent<{ pluginMessage?: PluginToUiMessage }>) 
 
   if (message.type === "plugin.context") {
     runtimeContext = message.context;
+    if (readyPingTimer !== null) {
+      window.clearInterval(readyPingTimer);
+      readyPingTimer = null;
+    }
     renderContext();
     transport.updateContext(message.context);
     return;
@@ -134,7 +145,17 @@ window.onmessage = (event: MessageEvent<{ pluginMessage?: PluginToUiMessage }>) 
 };
 
 reconnectButton.addEventListener("click", () => transport.reconnect());
-parent.postMessage({ pluginMessage: { type: "ui.ready" } }, "*");
+requestPluginContext();
+readyPingTimer = window.setInterval(() => {
+  if (runtimeContext) {
+    if (readyPingTimer !== null) {
+      window.clearInterval(readyPingTimer);
+      readyPingTimer = null;
+    }
+    return;
+  }
+  requestPluginContext();
+}, 500);
 
 function trackRequest(request: RequestEnvelope<ToolName>): void {
   const trackedAction = describeRequest(request);
@@ -144,6 +165,10 @@ function trackRequest(request: RequestEnvelope<ToolName>): void {
 
   pendingActions.set(request.requestId, trackedAction);
   renderCurrentAction();
+}
+
+function requestPluginContext(): void {
+  parent.postMessage({ pluginMessage: { type: "ui.ready" } }, "*");
 }
 
 function trackResponse(response: ResponseEnvelope): void {
@@ -350,8 +375,10 @@ function renderCurrentAction(): void {
   const activeAction = getLatestPendingAction();
 
   if (activeAction) {
+    renderActionEmptyState(false);
     currentBadge.textContent = activeAction.effect === "preview" ? "Previewing" : "Running";
     currentBadge.className = `badge ${activeAction.effect === "preview" ? "badge-preview" : "badge-running"}`;
+    setActionPanelTone(activeAction.effect === "preview" ? "preview" : "running");
     currentTitle.textContent = activeAction.title;
     currentDetail.textContent = activeAction.detail;
     currentMeta.textContent = `Started ${formatTime(activeAction.startedAt)}.`;
@@ -362,15 +389,19 @@ function renderCurrentAction(): void {
   currentBadge.className = "badge badge-idle";
 
   if (lastCompletedAction) {
+    renderActionEmptyState(false);
+    setActionPanelTone(lastCompletedAction.status);
     currentTitle.textContent = "No active design action";
-    currentDetail.textContent = lastCompletedAction.summary ?? lastCompletedAction.detail;
+    currentDetail.textContent = lastCompletedAction.summary ?? lastCompletedAction.title;
     currentMeta.textContent = `Last ${statusLabel(lastCompletedAction.status).toLowerCase()} at ${formatTime(lastCompletedAction.finishedAt ?? lastCompletedAction.startedAt)}.`;
     return;
   }
 
-  currentTitle.textContent = "Waiting for the next design action";
-  currentDetail.textContent = "Committed writes and previews will appear here while the plugin is working.";
-  currentMeta.textContent = "No design action is running right now.";
+  renderActionEmptyState(true);
+  setActionPanelTone("idle");
+  currentTitle.textContent = "Actions";
+  currentDetail.textContent = "Nothing has been tracked in this session yet.";
+  currentMeta.textContent = "Recent bridge activity will show up here.";
 }
 
 function renderHistory(): void {
@@ -379,7 +410,7 @@ function renderHistory(): void {
   if (history.length === 0) {
     const emptyItem = document.createElement("li");
     emptyItem.className = "history-empty";
-    emptyItem.textContent = "No tracked design actions yet.";
+    emptyItem.textContent = getLatestPendingAction() ? "No completed actions yet." : "No tracked actions yet.";
     historyList.appendChild(emptyItem);
     return;
   }
@@ -388,28 +419,20 @@ function renderHistory(): void {
     const row = document.createElement("li");
     row.className = "history-item";
 
-    const top = document.createElement("div");
-    top.className = "history-top";
+    const main = document.createElement("div");
+    main.className = "history-main";
 
     const title = document.createElement("div");
     title.className = "history-title";
     title.textContent = item.title;
 
-    const badge = document.createElement("div");
-    badge.className = `badge ${badgeClassForAction(item.status)}`;
-    badge.textContent = statusLabel(item.status);
-
-    top.append(title, badge);
-
-    const summary = document.createElement("div");
-    summary.className = "history-summary";
-    summary.textContent = item.summary ?? item.detail;
+    main.append(title);
 
     const meta = document.createElement("div");
     meta.className = "history-meta";
-    meta.textContent = `${formatTime(item.finishedAt ?? item.startedAt)} · ${item.effect === "preview" ? "Preview" : "Change"}`;
+    meta.textContent = `${statusLabel(item.status)} · ${formatTime(item.finishedAt ?? item.startedAt)}`;
 
-    row.append(top, summary, meta);
+    row.append(main, meta);
     historyList.appendChild(row);
   }
 }
@@ -419,17 +442,14 @@ function renderContext(): void {
 
   const entries: Array<[string, string]> = runtimeContext
     ? [
-        ["File", runtimeContext.fileName],
-        ["Page", runtimeContext.pageName],
-        ["Selection", `${runtimeContext.selectionCount} node(s)`],
-        ["Editor", runtimeContext.editorType],
-        ["File Key", runtimeContext.fileKey ?? "Local draft"],
-        ["Page ID", runtimeContext.pageId],
-        ["Plugin ID", runtimeContext.pluginInstanceId]
+        ["Document", `${runtimeContext.fileName} / ${runtimeContext.pageName}`],
+        ["Selection", `${runtimeContext.selectionCount} selected · ${runtimeContext.editorType}`],
+        ["File", runtimeContext.fileKey ?? "Local draft"]
       ]
     : [
-        ["Context", "Waiting for plugin runtime context"],
-        ["State", "Run the plugin in a Figma file to populate file and page details."]
+        ["Document", "Waiting for file"],
+        ["Selection", "No active context"],
+        ["File", "Local draft"]
       ];
 
   for (const [label, value] of entries) {
@@ -497,6 +517,19 @@ function badgeClassForAction(status: ActionStatus): string {
       return "badge-failed";
     default:
       return "badge-running";
+  }
+}
+
+function setActionPanelTone(state: ActionStatus | "idle"): void {
+  actionsPanel.className = `panel actions-panel panel-tone-${state}`;
+}
+
+function renderActionEmptyState(isEmpty: boolean): void {
+  actionsEmpty.classList.toggle("hidden", !isEmpty);
+  historyList.hidden = isEmpty;
+  const historyLabel = historyList.previousElementSibling;
+  if (historyLabel instanceof HTMLElement) {
+    historyLabel.hidden = isEmpty;
   }
 }
 

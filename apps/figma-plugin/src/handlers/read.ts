@@ -40,6 +40,7 @@ import {
   requireBaseNode
 } from "./node-helpers.js";
 import { serializePaints } from "./paints.js";
+import { serializePrototypeMetadata } from "./prototype.js";
 
 function isMixed(value: unknown): boolean {
   return value === figma.mixed;
@@ -509,6 +510,7 @@ export async function describeNodeAsync(node: BaseNode): Promise<NodeDetails> {
   const rawBoundVariables = (node as BaseNode & { boundVariables?: unknown }).boundVariables;
   const boundVariables = serializeBoundVariables(rawBoundVariables);
   const instance = await collectInstanceMetadata(node);
+  const prototype = serializePrototypeMetadata(node);
 
   if (styles || boundVariables || instance) {
     details.design = {
@@ -516,6 +518,9 @@ export async function describeNodeAsync(node: BaseNode): Promise<NodeDetails> {
       ...(boundVariables ? { boundVariables } : {}),
       ...(instance ? { instance } : {})
     };
+  }
+  if (prototype) {
+    details.prototype = prototype;
   }
 
   return details;

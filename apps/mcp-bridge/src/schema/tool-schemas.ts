@@ -18,6 +18,7 @@ import {
   extractDesignTokensPayloadSchema,
   findNodesPayloadSchema,
   getComponentsPayloadSchema,
+  getFlowPayloadSchema,
   getStylesPayloadSchema,
   getVariablesPayloadSchema,
   getNodePayloadSchema,
@@ -27,6 +28,7 @@ import {
   renameNodePayloadSchema,
   setImageFillPayloadSchema,
   setInstancePropertiesPayloadSchema,
+  setReactionsPayloadSchema,
   setTextPayloadSchema,
   updateNodePropertiesPayloadSchema
 } from "@figma-auto/protocol";
@@ -36,6 +38,7 @@ export const toolSchemas = {
   getSessionStatus: emptyPayloadSchema,
   getFile: emptyPayloadSchema,
   getCurrentPage: emptyPayloadSchema,
+  getFlow: getFlowPayloadSchema,
   getSelection: emptyPayloadSchema,
   listPages: emptyPayloadSchema,
   getNode: getNodePayloadSchema,
@@ -54,6 +57,7 @@ export const toolSchemas = {
   duplicateNode: duplicateNodePayloadSchema,
   setInstanceProperties: setInstancePropertiesPayloadSchema,
   setImageFill: setImageFillPayloadSchema,
+  setReactions: setReactionsPayloadSchema,
   setText: setTextPayloadSchema,
   applyStyles: applyStylesPayloadSchema,
   updateNodeProperties: updateNodePropertiesPayloadSchema,

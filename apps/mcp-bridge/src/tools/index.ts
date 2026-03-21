@@ -17,6 +17,7 @@ import { extractDesignTokensTool } from "./extract-design-tokens.js";
 import { getCurrentPageTool } from "./get-current-page.js";
 import { getComponentsTool } from "./get-components.js";
 import { getFileTool } from "./get-file.js";
+import { getFlowTool } from "./get-flow.js";
 import { getNodeTool } from "./get-node.js";
 import { getNodeTreeTool } from "./get-node-tree.js";
 import { getSessionStatusTool } from "./get-session-status.js";
@@ -31,6 +32,7 @@ import { pingTool } from "./ping.js";
 import { renameNodeTool } from "./rename-node.js";
 import { setImageFillTool } from "./set-image-fill.js";
 import { setInstancePropertiesTool } from "./set-instance-properties.js";
+import { setReactionsTool } from "./set-reactions.js";
 import { setTextTool } from "./set-text.js";
 import { updateNodePropertiesTool } from "./update-node-properties.js";
 
@@ -39,6 +41,7 @@ export const toolDefinitions = [
   pingTool,
   getFileTool,
   getCurrentPageTool,
+  getFlowTool,
   getSelectionTool,
   listPagesTool,
   getNodeTool,
@@ -57,6 +60,7 @@ export const toolDefinitions = [
   duplicateNodeTool,
   setInstancePropertiesTool,
   setImageFillTool,
+  setReactionsTool,
   setTextTool,
   applyStylesTool,
   updateNodePropertiesTool,

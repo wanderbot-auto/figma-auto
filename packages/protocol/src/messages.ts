@@ -1,5 +1,7 @@
 export const PROTOCOL_VERSION = "1.0.0";
 export const BRIDGE_PORT = 4318;
+export const SESSION_REPLACED_CLOSE_CODE = 4001;
+export const SESSION_REPLACED_CLOSE_REASON = "session_replaced";
 export const MAX_BATCH_OPS = 10;
 export const MAX_BATCH_V2_OPS = 25;
 export const MAX_FIND_RESULTS = 200;
@@ -25,6 +27,7 @@ export type ToolName =
   | "figma.ping"
   | "figma.get_file"
   | "figma.get_current_page"
+  | "figma.get_flow"
   | "figma.get_selection"
   | "figma.list_pages"
   | "figma.get_node"
@@ -43,6 +46,7 @@ export type ToolName =
   | "figma.duplicate_node"
   | "figma.set_instance_properties"
   | "figma.set_image_fill"
+  | "figma.set_reactions"
   | "figma.set_text"
   | "figma.apply_styles"
   | "figma.update_node_properties"
@@ -154,6 +158,201 @@ export interface NodeDesignMetadata {
   instance?: InstanceMetadata | undefined;
 }
 
+export interface VectorValue {
+  x: number;
+  y: number;
+}
+
+export type PrototypeEasingType =
+  | "EASE_IN"
+  | "EASE_OUT"
+  | "EASE_IN_AND_OUT"
+  | "LINEAR"
+  | "EASE_IN_BACK"
+  | "EASE_OUT_BACK"
+  | "EASE_IN_AND_OUT_BACK"
+  | "CUSTOM_CUBIC_BEZIER"
+  | "GENTLE"
+  | "QUICK"
+  | "BOUNCY"
+  | "SLOW"
+  | "CUSTOM_SPRING";
+
+export interface PrototypeEasingFunctionBezier {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface PrototypeEasingFunctionSpring {
+  mass: number;
+  stiffness: number;
+  damping: number;
+  initialVelocity: number;
+}
+
+export interface PrototypeEasing {
+  type: PrototypeEasingType;
+  easingFunctionCubicBezier?: PrototypeEasingFunctionBezier | undefined;
+  easingFunctionSpring?: PrototypeEasingFunctionSpring | undefined;
+}
+
+export interface PrototypeSimpleTransition {
+  type: "DISSOLVE" | "SMART_ANIMATE" | "SCROLL_ANIMATE";
+  easing: PrototypeEasing;
+  duration: number;
+}
+
+export interface PrototypeDirectionalTransition {
+  type: "MOVE_IN" | "MOVE_OUT" | "PUSH" | "SLIDE_IN" | "SLIDE_OUT";
+  direction: "LEFT" | "RIGHT" | "TOP" | "BOTTOM";
+  matchLayers: boolean;
+  easing: PrototypeEasing;
+  duration: number;
+}
+
+export type PrototypeTransition = PrototypeSimpleTransition | PrototypeDirectionalTransition;
+
+export type PrototypeTrigger =
+  | {
+      type: "ON_CLICK" | "ON_HOVER" | "ON_PRESS" | "ON_DRAG";
+    }
+  | {
+      type: "AFTER_TIMEOUT";
+      timeout: number;
+    }
+  | {
+      type: "MOUSE_UP" | "MOUSE_DOWN";
+      delay: number;
+    }
+  | {
+      type: "MOUSE_ENTER" | "MOUSE_LEAVE";
+      delay: number;
+      deprecatedVersion: boolean;
+    }
+  | {
+      type: "ON_KEY_DOWN";
+      device: "KEYBOARD" | "XBOX_ONE" | "PS4" | "SWITCH_PRO" | "UNKNOWN_CONTROLLER";
+      keyCodes: number[];
+    }
+  | {
+      type: "ON_MEDIA_HIT";
+      mediaHitTime: number;
+    }
+  | {
+      type: "ON_MEDIA_END";
+    };
+
+export type PrototypeVariableDataType = "BOOLEAN" | "FLOAT" | "STRING" | "VARIABLE_ALIAS" | "COLOR" | "EXPRESSION";
+
+export type PrototypeExpressionFunction =
+  | "ADDITION"
+  | "SUBTRACTION"
+  | "MULTIPLICATION"
+  | "DIVISION"
+  | "EQUALS"
+  | "NOT_EQUAL"
+  | "LESS_THAN"
+  | "LESS_THAN_OR_EQUAL"
+  | "GREATER_THAN"
+  | "GREATER_THAN_OR_EQUAL"
+  | "AND"
+  | "OR"
+  | "VAR_MODE_LOOKUP"
+  | "NEGATE"
+  | "NOT";
+
+export interface PrototypeExpression {
+  expressionFunction: PrototypeExpressionFunction;
+  expressionArguments: PrototypeVariableData[];
+}
+
+export type PrototypeVariableValueWithExpression =
+  | boolean
+  | number
+  | string
+  | ColorValue
+  | VariableAliasValue
+  | PrototypeExpression;
+
+export interface PrototypeVariableData {
+  type?: PrototypeVariableDataType | undefined;
+  resolvedType?: VariableResolvedDataType | undefined;
+  value?: PrototypeVariableValueWithExpression | undefined;
+}
+
+export interface PrototypeConditionalBlock {
+  condition?: PrototypeVariableData | undefined;
+  actions: PrototypeAction[];
+}
+
+export type PrototypeNavigation = "NAVIGATE" | "SWAP" | "OVERLAY" | "SCROLL_TO" | "CHANGE_TO";
+
+export type PrototypeAction =
+  | {
+      type: "BACK" | "CLOSE";
+    }
+  | {
+      type: "URL";
+      url: string;
+      openInNewTab?: boolean | undefined;
+    }
+  | {
+      type: "UPDATE_MEDIA_RUNTIME";
+      destinationId?: string | null | undefined;
+      mediaAction:
+        | "PLAY"
+        | "PAUSE"
+        | "TOGGLE_PLAY_PAUSE"
+        | "MUTE"
+        | "UNMUTE"
+        | "TOGGLE_MUTE_UNMUTE"
+        | "SKIP_FORWARD"
+        | "SKIP_BACKWARD"
+        | "SKIP_TO";
+      amountToSkip?: number | undefined;
+      newTimestamp?: number | undefined;
+    }
+  | {
+      type: "SET_VARIABLE";
+      variableId: string | null;
+      variableValue?: PrototypeVariableData | undefined;
+    }
+  | {
+      type: "SET_VARIABLE_MODE";
+      variableCollectionId: string | null;
+      variableModeId: string | null;
+    }
+  | {
+      type: "CONDITIONAL";
+      conditionalBlocks: PrototypeConditionalBlock[];
+    }
+  | {
+      type: "NODE";
+      destinationId: string | null;
+      navigation: PrototypeNavigation;
+      transition?: PrototypeTransition | null | undefined;
+      preserveScrollPosition?: boolean | undefined;
+      overlayRelativePosition?: VectorValue | undefined;
+      resetVideoPosition?: boolean | undefined;
+      resetScrollPosition?: boolean | undefined;
+      resetInteractiveComponents?: boolean | undefined;
+    };
+
+export interface PrototypeReaction {
+  action?: PrototypeAction | undefined;
+  actions?: PrototypeAction[] | undefined;
+  trigger: PrototypeTrigger | null;
+}
+
+export type OverflowDirection = "NONE" | "HORIZONTAL" | "VERTICAL" | "BOTH";
+
+export interface NodePrototypeMetadata {
+  reactions?: PrototypeReaction[] | undefined;
+  overflowDirection?: OverflowDirection | undefined;
+}
+
 export interface NodeDetails extends NodeSummary {
   childIds?: string[] | undefined;
   characters?: string | undefined;
@@ -194,6 +393,7 @@ export interface NodeDetails extends NodeSummary {
   layoutAlign?: AutoLayoutChildAlign | undefined;
   clipsContent?: boolean | undefined;
   design?: NodeDesignMetadata | undefined;
+  prototype?: NodePrototypeMetadata | undefined;
 }
 
 export interface NodeTreeNode extends NodeDetails {
@@ -247,10 +447,30 @@ export interface GetCurrentPageResult {
   childIds: string[];
 }
 
+export interface FlowStartingPointSummary {
+  nodeId: string;
+  name: string;
+}
+
+export interface PageFlowSummary {
+  page: PageSummary;
+  flowStartingPoints: FlowStartingPointSummary[];
+  prototypeStartNode: NodeSummary | null;
+  prototypeBackgrounds: SerializablePaint[];
+}
+
 export interface GetSelectionResult {
   fileKey: string | null;
   pageId: string;
   selection: NodeSummary[];
+}
+
+export interface GetFlowPayload {
+  pageId?: string | undefined;
+}
+
+export interface GetFlowResult {
+  flow: PageFlowSummary;
 }
 
 export interface ListPagesResult {
@@ -600,6 +820,16 @@ export interface SetImageFillResult {
   imageHash: string;
   paintIndex: number;
   updatedFields: string[];
+}
+
+export interface SetReactionsPayload {
+  nodeId: string;
+  reactions: PrototypeReaction[];
+}
+
+export interface SetReactionsResult {
+  node: NodeDetails;
+  reactionCount: number;
 }
 
 export interface ApplyStylesPayload {

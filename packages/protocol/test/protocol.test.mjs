@@ -20,6 +20,7 @@ import {
   extractDesignTokensPayloadSchema,
   findNodesPayloadSchema,
   getComponentsPayloadSchema,
+  getFlowPayloadSchema,
   getVariablesPayloadSchema,
   getStylesPayloadSchema,
   getNodeTreePayloadSchema,
@@ -27,6 +28,7 @@ import {
   sessionRegistrationPayloadSchema,
   setImageFillPayloadSchema,
   setInstancePropertiesPayloadSchema,
+  setReactionsPayloadSchema,
   updateNodePropertiesPayloadSchema
 } from "../dist/index.js";
 
@@ -83,6 +85,11 @@ test("node tree payload accepts omitted nodeId and explicit depth", () => {
   const parsed = getNodeTreePayloadSchema.parse({ depth: 2 });
   assert.equal(parsed.depth, 2);
   assert.equal(parsed.nodeId, undefined);
+});
+
+test("get flow payload accepts an omitted or explicit pageId", () => {
+  assert.equal(getFlowPayloadSchema.parse({}).pageId, undefined);
+  assert.equal(getFlowPayloadSchema.parse({ pageId: "1:2" }).pageId, "1:2");
 });
 
 test("find nodes payload accepts page-scoped filters", () => {
@@ -227,6 +234,50 @@ test("set image fill payload accepts URL-backed image fills", () => {
 
   assert.equal(parsed.image.type, "IMAGE");
   assert.equal(parsed.image.scaleMode, "FILL");
+});
+
+test("set reactions payload accepts node navigation and variable actions", () => {
+  const parsed = setReactionsPayloadSchema.parse({
+    nodeId: "1:2",
+    reactions: [
+      {
+        trigger: { type: "ON_CLICK" },
+        actions: [
+          {
+            type: "NODE",
+            destinationId: "1:3",
+            navigation: "NAVIGATE",
+            transition: {
+              type: "SMART_ANIMATE",
+              easing: { type: "EASE_OUT" },
+              duration: 0.2
+            }
+          },
+          {
+            type: "SET_VARIABLE",
+            variableId: "VariableID:1:4",
+            variableValue: {
+              type: "BOOLEAN",
+              resolvedType: "BOOLEAN",
+              value: true
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  assert.equal(parsed.reactions[0].actions[0].type, "NODE");
+  assert.equal(parsed.reactions[0].actions[1].type, "SET_VARIABLE");
+});
+
+test("set reactions payload rejects a reaction without actions", () => {
+  const result = setReactionsPayloadSchema.safeParse({
+    nodeId: "1:2",
+    reactions: [{ trigger: { type: "ON_CLICK" } }]
+  });
+
+  assert.equal(result.success, false);
 });
 
 test("duplicate node payload accepts rename and placement overrides", () => {

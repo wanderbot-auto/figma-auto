@@ -1,4 +1,10 @@
-import type { RequestEnvelope, ResponseEnvelope, SessionRegistrationPayload } from "@figma-auto/protocol";
+import {
+  SESSION_REPLACED_CLOSE_CODE,
+  SESSION_REPLACED_CLOSE_REASON,
+  type RequestEnvelope,
+  type ResponseEnvelope,
+  type SessionRegistrationPayload
+} from "@figma-auto/protocol";
 
 import type { PluginRuntimeContext } from "./types.js";
 
@@ -91,12 +97,19 @@ export class BridgeTransport {
       }
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
       if (this.socket !== socket) {
         return;
       }
 
       this.socket = null;
+      if (
+        event.code === SESSION_REPLACED_CLOSE_CODE
+        || event.reason === SESSION_REPLACED_CLOSE_REASON
+      ) {
+        this.emitStatus("disconnected", "This plugin instance was replaced by another active session. Use Reconnect to take over.");
+        return;
+      }
       this.emitStatus("disconnected", "Disconnected from local bridge. Retrying in 2 seconds.");
       this.scheduleReconnect();
     });
