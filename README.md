@@ -5,15 +5,15 @@
 It has 3 parts:
 
 - `packages/protocol`: shared types, limits, and Zod schemas
-- `apps/mcp-bridge`: MCP stdio server + local WebSocket bridge
+- `apps/mcp-bridge`: MCP bridge with stdio and streamable HTTP support, plus the local WebSocket bridge for the plugin
 - `apps/figma-plugin`: Figma plugin runtime and handlers
 
 ## Current State
 
 - Single active plugin session over WebSocket
 - Editor support: `figma` only
-- Read surface: file/page/selection/node/tree/style/component/variable search and snapshots
-- Write surface: create/duplicate/move/delete, style apply, text edits, instance property edits, image fills, variable create/bind flows
+- Read surface: file/page/flow/selection/node/tree/style/component/variable search and snapshots
+- Write surface: create/duplicate/move/delete, style apply, text edits, instance property edits, image fills, prototype reactions, variable create/bind flows
 - Batch surface: `figma.batch_edit` is the legacy bounded interface
 - Batch surface: `figma.batch_edit_v2` is the main engine and supports `opId` references
 - Higher-level surface: `figma.normalize_names`, `figma.create_spec_page`, and `figma.extract_design_tokens`
@@ -30,6 +30,8 @@ npm run start:local
 ```
 
 Then load `apps/figma-plugin/manifest.json` as a local plugin in Figma and run it in the target file.
+
+If you want a long-running bridge process that Codex can attach to, the same bridge also exposes a remote MCP endpoint at `http://localhost:<port>/mcp`.
 
 ## Windows
 
@@ -58,6 +60,7 @@ npm run start:local
 ## Docs
 
 - `docs/local-dev.md`: local commands, env vars, troubleshooting
+- `docs/usage-zh.md`: Chinese feature overview and practical usage guide
 - `docs/macos-menu-bar-app.md`: macOS status bar app for managing multiple bridge instances
 - `docs/tool-surface.md`: current MCP tools and important limits
 - `docs/architecture.md`: module boundaries and request flow

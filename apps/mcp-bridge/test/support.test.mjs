@@ -7,8 +7,11 @@ import assert from "node:assert/strict";
 import { SESSION_REPLACED_CLOSE_CODE, SESSION_REPLACED_CLOSE_REASON } from "@figma-auto/protocol";
 import { AuditLogger } from "../dist/logging/audit-log.js";
 import { BridgeLogger } from "../dist/logging/bridge-log.js";
+import { resolvePublicMcpHttpUrl } from "../dist/config.js";
 import { validationIssuesToProtocolError } from "../dist/errors.js";
 import { PluginSessionStore } from "../dist/session/plugin-session-store.js";
+import { isInitializeRequestBody, isMcpRequestPath } from "../dist/transport/mcp-http.js";
+import { formatWebSocketListenError } from "../dist/transport/websocket.js";
 
 class FakeSocket {
   constructor(name) {
@@ -136,4 +139,28 @@ test("validation issues map batch op overflow to batch_limit_exceeded", () => {
   ]);
 
   assert.equal(error.code, "batch_limit_exceeded");
+});
+
+test("websocket listen errors explain port conflicts", () => {
+  const error = new Error("listen EADDRINUSE: address already in use ::1:4975");
+  error.code = "EADDRINUSE";
+
+  assert.equal(
+    formatWebSocketListenError(error, "localhost", 4975),
+    "Failed to bind WebSocket bridge on localhost:4975: address already in use. Another figma-auto bridge is probably already running on this port. Stop the existing bridge or choose a different FIGMA_AUTO_BRIDGE_PORT."
+  );
+});
+
+test("public MCP URL appends /mcp to the bridge HTTP URL", () => {
+  assert.equal(resolvePublicMcpHttpUrl("http://localhost:4975"), "http://localhost:4975/mcp");
+  assert.equal(resolvePublicMcpHttpUrl("http://localhost:4975/base"), "http://localhost:4975/base/mcp");
+  assert.equal(resolvePublicMcpHttpUrl("http://localhost:4975/mcp"), "http://localhost:4975/mcp");
+});
+
+test("HTTP MCP routing accepts root and /mcp, and initialize detection is strict", () => {
+  assert.equal(isMcpRequestPath("/", "/mcp"), true);
+  assert.equal(isMcpRequestPath("/mcp", "/mcp"), true);
+  assert.equal(isMcpRequestPath("/other", "/mcp"), false);
+  assert.equal(isInitializeRequestBody({ method: "initialize" }), true);
+  assert.equal(isInitializeRequestBody({ method: "tools/list" }), false);
 });

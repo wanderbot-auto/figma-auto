@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { type GetSessionStatusResult, type ToolName } from "@figma-auto/protocol";
@@ -9,39 +11,84 @@ import { formatJson } from "./format.js";
 import { coerceProtocolError, validationIssuesToProtocolError } from "./errors.js";
 import { PluginSessionStore } from "./session/plugin-session-store.js";
 import { toolDefinitions } from "./tools/index.js";
+import { RemoteMcpHttpServer } from "./transport/mcp-http.js";
 import { PluginWebSocketBridge } from "./transport/websocket.js";
+
+function formatHttpListenError(error: Error & { code?: string }, host: string, port: number): string {
+  const target = `${host}:${port}`;
+  if (error.code === "EADDRINUSE") {
+    return `Failed to bind figma-auto bridge on ${target}: address already in use. Another figma-auto bridge is probably already running on this port.`;
+  }
+
+  if (error.code === "EACCES" || error.code === "EPERM") {
+    return `Failed to bind figma-auto bridge on ${target}: permission denied. Check local firewall/sandbox restrictions or choose a different host/port.`;
+  }
+
+  return `Failed to bind figma-auto bridge on ${target}: ${error.message}`;
+}
 
 export class FigmaAutoBridgeServer {
   private readonly sessionStore = new PluginSessionStore();
   private readonly auditLogger = new AuditLogger(bridgeConfig.auditLogPath);
   private readonly bridgeLogger = new BridgeLogger(bridgeConfig.bridgeLogPath);
+  private readonly httpServer = createServer((req, res) => {
+    this.httpBridge.handleRequest(req, res).catch((error) => {
+      const protocolError = coerceProtocolError(error);
+      void this.bridgeLogger.error("mcp_http_request_failed", {
+        code: protocolError.code,
+        message: protocolError.message,
+        method: req.method,
+        url: req.url
+      });
+
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: "Internal server error"
+          },
+          id: null
+        }));
+      } else {
+        res.end();
+      }
+    });
+  });
   private readonly wsBridge = new PluginWebSocketBridge(
     bridgeConfig.host,
     bridgeConfig.port,
+    bridgeConfig.mcpHttpPath,
     this.sessionStore,
     this.bridgeLogger
   );
-  private readonly mcpServer = new McpServer({
-    name: "figma-auto-bridge",
-    version: "0.1.0"
-  });
+  private readonly stdioMcpServer = this.createMcpServer();
+  private readonly httpBridge = new RemoteMcpHttpServer(
+    () => this.createMcpServer(),
+    bridgeConfig.mcpHttpPath,
+    this.bridgeLogger
+  );
 
-  constructor() {
-    this.registerTools();
-  }
+  constructor() {}
 
   async start(): Promise<void> {
     await this.bridgeLogger.info("bridge_starting", {
       host: bridgeConfig.host,
       port: bridgeConfig.port,
-      publicWsUrl: bridgeConfig.publicWsUrl
+      publicWsUrl: bridgeConfig.publicWsUrl,
+      publicHttpUrl: bridgeConfig.publicHttpUrl,
+      publicMcpHttpUrl: bridgeConfig.publicMcpHttpUrl
     });
 
     try {
-      await this.wsBridge.start();
+      await this.wsBridge.start(this.httpServer);
+      await this.startHttpServer();
       const transport = new StdioServerTransport();
-      await this.mcpServer.connect(transport);
-      await this.bridgeLogger.info("bridge_ready");
+      await this.stdioMcpServer.connect(transport);
+      await this.bridgeLogger.info("bridge_ready", {
+        publicMcpHttpUrl: bridgeConfig.publicMcpHttpUrl
+      });
     } catch (error) {
       const protocolError = coerceProtocolError(error);
       await this.bridgeLogger.error("bridge_start_failed", {
@@ -52,9 +99,58 @@ export class FigmaAutoBridgeServer {
     }
   }
 
-  private registerTools(): void {
+  private createMcpServer(): McpServer {
+    const mcpServer = new McpServer({
+      name: "figma-auto-bridge",
+      version: "0.1.0"
+    });
+    this.registerTools(mcpServer);
+    return mcpServer;
+  }
+
+  private async startHttpServer(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const onListening = () => {
+        this.httpServer.off("error", onError);
+        resolve();
+      };
+
+      const onError = (error: Error & { code?: string }) => {
+        this.httpServer.off("listening", onListening);
+        void this.bridgeLogger.error("http_server_error", {
+          message: error.message,
+          code: error.code,
+          host: bridgeConfig.host,
+          port: bridgeConfig.port
+        });
+        reject(new Error(formatHttpListenError(error, bridgeConfig.host, bridgeConfig.port)));
+      };
+
+      this.httpServer.once("listening", onListening);
+      this.httpServer.once("error", onError);
+      this.httpServer.listen(bridgeConfig.port, bridgeConfig.host);
+    });
+
+    this.httpServer.on("error", (error: Error & { code?: string }) => {
+      void this.bridgeLogger.error("http_server_error", {
+        message: error.message,
+        code: error.code,
+        host: bridgeConfig.host,
+        port: bridgeConfig.port
+      });
+    });
+
+    await this.bridgeLogger.info("http_server_listening", {
+      host: bridgeConfig.host,
+      port: bridgeConfig.port,
+      mcpPath: bridgeConfig.mcpHttpPath,
+      publicMcpHttpUrl: bridgeConfig.publicMcpHttpUrl
+    });
+  }
+
+  private registerTools(mcpServer: McpServer): void {
     for (const definition of toolDefinitions) {
-      this.mcpServer.registerTool(
+      mcpServer.registerTool(
         definition.name,
         {
           description: definition.description,
@@ -146,7 +242,7 @@ export class FigmaAutoBridgeServer {
       host: bridgeConfig.host,
       port: bridgeConfig.port,
       publicWsUrl: bridgeConfig.publicWsUrl,
-      publicHttpUrl: bridgeConfig.publicHttpUrl,
+      publicHttpUrl: bridgeConfig.publicMcpHttpUrl,
       session: activeSession
         ? {
             sessionId: activeSession.context.sessionId,

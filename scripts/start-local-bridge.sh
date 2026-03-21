@@ -157,6 +157,7 @@ print_config() {
   printf -- '- audit log: %s\n' "$(format_path "$audit_log_path")"
   printf -- '- websocket url: %s\n' "$bridge_ws_url"
   printf -- '- http url: %s\n' "$bridge_http_url"
+  printf -- '- mcp endpoint: %s\n' "${bridge_http_url%/}/mcp"
 }
 
 cleanup() {

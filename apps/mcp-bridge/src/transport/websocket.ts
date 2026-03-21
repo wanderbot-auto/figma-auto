@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { type IncomingMessage, type Server as HttpServer } from "node:http";
+import { type Duplex } from "node:stream";
 
 import {
   PROTOCOL_VERSION,
@@ -21,31 +23,67 @@ interface PendingRequest {
   reject: (reason: unknown) => void;
 }
 
+export function formatWebSocketListenError(error: Error & { code?: string }, host: string, port: number): string {
+  const target = `${host}:${port}`;
+  if (error.code === "EADDRINUSE") {
+    return `Failed to bind WebSocket bridge on ${target}: address already in use. Another figma-auto bridge is probably already running on this port. Stop the existing bridge or choose a different FIGMA_AUTO_BRIDGE_PORT.`;
+  }
+
+  if (error.code === "EACCES" || error.code === "EPERM") {
+    return `Failed to bind WebSocket bridge on ${target}: permission denied. Check local firewall/sandbox restrictions or choose a different host/port.`;
+  }
+
+  return `Failed to bind WebSocket bridge on ${target}: ${error.message}`;
+}
+
 export class PluginWebSocketBridge {
   private server: WebSocketServer | null = null;
+  private upgradeServer: HttpServer | null = null;
+  private readonly handleHttpUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (!this.server) {
+      socket.destroy();
+      return;
+    }
+
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (pathname === this.mcpHttpPath) {
+      socket.destroy();
+      return;
+    }
+
+    this.server.handleUpgrade(request, socket, head, (webSocket) => {
+      this.server?.emit("connection", webSocket, request);
+    });
+  };
   private readonly pending = new Map<string, PendingRequest>();
 
   constructor(
     private readonly host: string,
     private readonly port: number,
+    private readonly mcpHttpPath: string,
     private readonly sessionStore: PluginSessionStore,
     private readonly bridgeLogger: BridgeLogger
   ) {}
 
-  async start(): Promise<void> {
-    this.server = new WebSocketServer({ host: this.host, port: this.port });
-    this.server.on("error", (error) => {
+  async start(httpServer: HttpServer): Promise<void> {
+    this.server = new WebSocketServer({ noServer: true });
+    this.upgradeServer = httpServer;
+    httpServer.on("upgrade", this.handleHttpUpgrade);
+    const server = this.server;
+
+    server.on("error", (error: Error & { code?: string }) => {
       void this.bridgeLogger.error("websocket_server_error", {
         message: error.message,
+        code: error.code,
         host: this.host,
         port: this.port
       });
     });
     this.server.on("connection", (socket: WebSocket) => this.handleConnection(socket));
-    await new Promise<void>((resolve) => this.server?.on("listening", () => resolve()));
     await this.bridgeLogger.info("websocket_listening", {
       host: this.host,
-      port: this.port
+      port: this.port,
+      transport: "http-upgrade"
     });
   }
 
@@ -58,6 +96,8 @@ export class PluginWebSocketBridge {
     if (!this.server) {
       return;
     }
+    this.upgradeServer?.off("upgrade", this.handleHttpUpgrade);
+    this.upgradeServer = null;
     await new Promise<void>((resolve, reject) => {
       this.server?.close((error?: Error) => {
         if (error) {

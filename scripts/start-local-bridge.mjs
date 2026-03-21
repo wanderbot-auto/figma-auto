@@ -113,6 +113,7 @@ function printConfig(config) {
   console.log(`- audit log: ${formatPath(config.auditLogPath)}`);
   console.log(`- websocket url: ${config.bridgeWsUrl}`);
   console.log(`- http url: ${config.bridgeHttpUrl}`);
+  console.log(`- mcp endpoint: ${config.bridgeMcpUrl}`);
 }
 
 function npmCommand() {
@@ -171,6 +172,7 @@ const config = {
   auditLogPath,
   bridgeHttpUrl,
   bridgeLogPath,
+  bridgeMcpUrl: `${bridgeHttpUrl.replace(/\/+$/, "")}/mcp`,
   instanceName,
   manifestPath,
   pluginDistDir,

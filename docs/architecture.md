@@ -9,9 +9,10 @@ This document describes the code that exists now.
   Main files: `packages/protocol/src/messages.ts`, `packages/protocol/src/zod.ts`
 
 - `apps/mcp-bridge`
-  Owns MCP registration, active-session management, WebSocket transport, and audit logging.
+  Owns MCP registration, streamable HTTP and stdio transports, active-session management, WebSocket transport, and audit logging.
   Main files:
   `apps/mcp-bridge/src/server.ts`
+  `apps/mcp-bridge/src/transport/mcp-http.ts`
   `apps/mcp-bridge/src/transport/websocket.ts`
   `apps/mcp-bridge/src/session/plugin-session-store.ts`
   `apps/mcp-bridge/src/tools/index.ts`
@@ -35,16 +36,17 @@ This document describes the code that exists now.
 
 ## Request Flow
 
-1. MCP client starts `apps/mcp-bridge`.
-2. Bridge opens a local WebSocket server.
-3. Figma loads the plugin UI, and the UI transport connects to the bridge WebSocket.
-4. Plugin UI sends `session.register`.
-5. Bridge keeps exactly one active session.
-6. Tool input is validated in the bridge with protocol Zod schemas.
-7. Tool requests are forwarded over WebSocket to the plugin UI transport.
-8. Plugin UI relays the request to plugin main code via `postMessage`.
-9. Plugin dispatches in `apps/figma-plugin/src/code.ts`, runs a handler, and returns a protocol response.
-10. Plugin UI forwards the response back to the bridge over WebSocket.
+1. A bridge process starts and listens on one local port.
+2. MCP clients either start that process over stdio or connect to its streamable HTTP endpoint at `/mcp`.
+3. The same bridge process accepts plugin WebSocket connections on that port.
+4. Figma loads the plugin UI, and the UI transport connects to the bridge WebSocket.
+5. Plugin UI sends `session.register`.
+6. Bridge keeps exactly one active plugin session.
+7. Tool input is validated in the bridge with protocol Zod schemas.
+8. Tool requests are forwarded over WebSocket to the plugin UI transport.
+9. Plugin UI relays the request to plugin main code via `postMessage`.
+10. Plugin dispatches in `apps/figma-plugin/src/code.ts`, runs a handler, and returns a protocol response.
+11. Plugin UI forwards the response back to the bridge over WebSocket.
 
 ## Invariants
 

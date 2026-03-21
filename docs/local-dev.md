@@ -29,6 +29,10 @@ macOS status bar app:
 4. Keep the bridge process running.
 5. Verify with `figma.get_session_status`.
 
+If Codex should attach to an already running bridge, use the remote MCP endpoint:
+
+- `http://localhost:<port>/mcp`
+
 ### macOS Status Bar App
 
 Use the Swift status bar app if you want to manage multiple bridge instances without manually running the shell wrapper.
@@ -48,6 +52,10 @@ The app can:
 - reveal the generated manifest and log files for each instance
 
 The app stores its state in `~/Library/Application Support/figma-auto/bridge-manager/state.json`.
+
+When a bridge instance is running, Codex can connect to it as a remote MCP server at:
+
+- `http://localhost:<instance-port>/mcp`
 
 ### Multiple Local Instances
 
@@ -113,6 +121,15 @@ The wrapper script already defaults local runs to `localhost`; if you start the 
 
 - Multiple local plugins collide
   Give each bridge its own `--instance` name and port, and import the generated manifest from the matching `instances/<name>/manifest.json` path. The status bar app handles this automatically per instance.
+
+- MCP startup says `startup incomplete` or logs `EADDRINUSE`
+  Do not keep a menu bar app or `npm run start:local` bridge running for the same instance/port that your MCP client is configured to launch.
+  MCP clients should either start `apps/mcp-bridge/dist/index.js` directly or connect to the already running bridge at `http://localhost:<port>/mcp`.
+  If you want multiple clients/files at once, give each client its own instance name and port, then import the matching generated plugin manifest.
+
+- Menu bar app is already running the bridge and Codex still cannot see tools
+  Switch Codex from a `command`-based MCP config to a remote `url` config that points at `http://localhost:<port>/mcp`.
+  The plugin still uses `ws://localhost:<port>`, but Codex should use the HTTP MCP endpoint.
 
 - Menu bar app cannot find `node` or `npm`
   The app launches commands through `zsh -lc`, so make sure your Node toolchain is available from your normal login shell environment.
