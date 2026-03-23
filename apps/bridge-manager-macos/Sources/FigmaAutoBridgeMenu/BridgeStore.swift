@@ -5,6 +5,10 @@ import Foundation
 
 @MainActor
 final class BridgeStore: ObservableObject {
+  private static let minimumAutoAssignedPort = 30000
+  static let recommendedWorkspaceDisplayPath = "~/Documents/figma-auto"
+  static let recommendedWorkspaceHint = "First launch: choose ~/Documents/figma-auto. Avoid hidden folders."
+
   @Published var workspaceRootURL: URL?
   @Published var instances: [BridgeInstance] = []
   @Published var globalErrorMessage: String?
@@ -40,6 +44,7 @@ final class BridgeStore: ObservableObject {
   private let fileManager: FileManager
   private let stateURL: URL
   private var cancellables: Set<AnyCancellable> = []
+  private var assignedBridgePorts: [UUID: Int] = [:]
 
   init(fileManager: FileManager = .default) {
     self.fileManager = fileManager
@@ -66,7 +71,7 @@ final class BridgeStore: ObservableObject {
       queue: nil
     ) { [weak self] _ in
       Task { @MainActor in
-        self?.stopAllProcesses()
+        self?.shutdownForTermination()
       }
     }
   }
@@ -82,6 +87,7 @@ final class BridgeStore: ObservableObject {
   func removeInstance(_ instance: BridgeInstance) {
     stop(instance)
     instances.removeAll { $0.id == instance.id }
+    releaseAssignedPort(for: instance)
     observeInstances()
     saveState()
   }
@@ -92,7 +98,8 @@ final class BridgeStore: ObservableObject {
     panel.canChooseFiles = false
     panel.allowsMultipleSelection = false
     panel.prompt = "Choose Workspace"
-    panel.message = "Select the figma-auto repository root."
+    panel.message = "Select the figma-auto repository root. Recommended: \(Self.recommendedWorkspaceDisplayPath). Avoid hidden folders."
+    panel.directoryURL = preferredWorkspacePickerURL()
 
     if panel.runModal() == .OK, let selectedURL = panel.url {
       workspaceRootURL = selectedURL
@@ -103,6 +110,24 @@ final class BridgeStore: ObservableObject {
       }
       saveState()
     }
+  }
+
+  private func preferredWorkspacePickerURL() -> URL {
+    let recommendedURL = fileManager.homeDirectoryForCurrentUser
+      .appendingPathComponent("Documents", isDirectory: true)
+      .appendingPathComponent("figma-auto", isDirectory: true)
+
+    if fileManager.fileExists(atPath: recommendedURL.path) {
+      return recommendedURL
+    }
+
+    let documentsURL = fileManager.homeDirectoryForCurrentUser
+      .appendingPathComponent("Documents", isDirectory: true)
+    if fileManager.fileExists(atPath: documentsURL.path) {
+      return documentsURL
+    }
+
+    return fileManager.homeDirectoryForCurrentUser
   }
 
   func revealWorkspaceRoot() {
@@ -174,6 +199,7 @@ final class BridgeStore: ObservableObject {
     }
 
     guard let bridgeProcess = instance.bridgeProcess else {
+      releaseAssignedPort(for: instance)
       instance.setStatus(.stopped(lastExitCode: nil))
       return
     }
@@ -209,17 +235,17 @@ final class BridgeStore: ObservableObject {
     }
 
     do {
-      let resolved = try resolvedConfiguration(for: instance)
-      if instance.autoBuild {
-        try await runBuild(for: instance, resolved: resolved)
-      }
+      let resolved = try prepareResolvedConfigurationForStart(for: instance)
+      try await runBuild(for: instance, resolved: resolved)
       try startBridgeProcess(for: instance, resolved: resolved)
     } catch is CancellationError {
+      releaseAssignedPort(for: instance)
       instance.setStatus(.stopped(lastExitCode: nil))
     } catch {
       instance.bridgeProcess = nil
       instance.buildProcess = nil
       closeLogHandle(for: instance)
+      releaseAssignedPort(for: instance)
       instance.setStatus(.failed(error.localizedDescription), errorMessage: error.localizedDescription)
     }
   }
@@ -351,6 +377,7 @@ final class BridgeStore: ObservableObject {
 
     instance.bridgeProcess = nil
     closeLogHandle(for: instance)
+    releaseAssignedPort(for: instance)
 
     if instance.stopRequested {
       instance.stopRequested = false
@@ -451,12 +478,155 @@ final class BridgeStore: ObservableObject {
     }
   }
 
-  private func stopAllProcesses() {
+  private func shutdownForTermination() {
     for instance in instances {
       instance.stopRequested = true
-      instance.buildProcess?.terminate()
-      instance.bridgeProcess?.terminate()
+      if let buildProcess = instance.buildProcess {
+        terminateAndWait(process: buildProcess)
+        instance.buildProcess = nil
+      }
+      if let bridgeProcess = instance.bridgeProcess {
+        terminateAndWait(process: bridgeProcess)
+        instance.bridgeProcess = nil
+      }
       closeLogHandle(for: instance)
+      releaseAssignedPort(for: instance)
+    }
+  }
+
+  private func prepareResolvedConfigurationForStart(
+    for instance: BridgeInstance
+  ) throws -> ResolvedBridgeConfiguration {
+    guard let workspaceRootURL else {
+      throw BridgeConfigurationError.missingWorkspaceRoot
+    }
+
+    let normalizedName = BridgeConfigurationResolver.normalizeInstanceName(instance.name)
+    guard !normalizedName.isEmpty else {
+      throw BridgeConfigurationError.invalidInstanceName
+    }
+
+    let rawOverride = instance.portOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+    let preferredPort: Int
+    if rawOverride.isEmpty {
+      preferredPort = Self.minimumAutoAssignedPort
+    } else if let overridePort = Int(rawOverride) {
+      guard (1...65535).contains(overridePort) else {
+        throw BridgeConfigurationError.outOfRangePort(overridePort)
+      }
+      preferredPort = max(overridePort, Self.minimumAutoAssignedPort)
+    } else {
+      throw BridgeConfigurationError.invalidPort(rawOverride)
+    }
+
+    let reservedPort = try reserveAvailablePort(
+      startingAt: preferredPort,
+      for: instance
+    )
+    let reservedPortText = String(reservedPort)
+    if instance.portOverride != reservedPortText {
+      instance.portOverride = reservedPortText
+    }
+
+    return try BridgeConfigurationResolver.resolve(
+      workspaceRoot: workspaceRootURL,
+      config: instance.config
+    )
+  }
+
+  private func reserveAvailablePort(
+    startingAt preferredPort: Int,
+    for instance: BridgeInstance
+  ) throws -> Int {
+    for port in preferredPort...65535 {
+      guard isPortAvailable(port, for: instance.id) else {
+        continue
+      }
+      assignedBridgePorts[instance.id] = port
+      return port
+    }
+
+    throw NSError(
+      domain: "FigmaAutoBridgeMenu",
+      code: 1,
+      userInfo: [NSLocalizedDescriptionKey: "No available port was found between \(preferredPort) and 65535."]
+    )
+  }
+
+  private func releaseAssignedPort(for instance: BridgeInstance) {
+    assignedBridgePorts.removeValue(forKey: instance.id)
+  }
+
+  private func isPortAvailable(_ port: Int, for instanceID: UUID) -> Bool {
+    for (assignedInstanceID, assignedPort) in assignedBridgePorts where assignedInstanceID != instanceID {
+      if assignedPort == port {
+        return false
+      }
+    }
+
+    return canBindIPv4(port) && canBindIPv6(port)
+  }
+
+  private func canBindIPv4(_ port: Int) -> Bool {
+    let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+    guard descriptor >= 0 else {
+      return false
+    }
+    defer { close(descriptor) }
+
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = UInt16(port).bigEndian
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+    return withUnsafePointer(to: &address) { pointer in
+      pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+        bind(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.stride)) == 0
+      }
+    }
+  }
+
+  private func canBindIPv6(_ port: Int) -> Bool {
+    let descriptor = socket(AF_INET6, SOCK_STREAM, 0)
+    guard descriptor >= 0 else {
+      return false
+    }
+    defer { close(descriptor) }
+
+    var value: Int32 = 1
+    _ = withUnsafePointer(to: &value) { pointer in
+      setsockopt(descriptor, IPPROTO_IPV6, IPV6_V6ONLY, pointer, socklen_t(MemoryLayout<Int32>.stride))
+    }
+
+    var address = sockaddr_in6()
+    address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.stride)
+    address.sin6_family = sa_family_t(AF_INET6)
+    address.sin6_port = UInt16(port).bigEndian
+    address.sin6_addr = in6addr_loopback
+
+    return withUnsafePointer(to: &address) { pointer in
+      pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+        bind(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in6>.stride)) == 0
+      }
+    }
+  }
+
+  private func terminateAndWait(process: Process) {
+    guard process.isRunning else {
+      return
+    }
+
+    process.terminate()
+
+    let deadline = Date().addingTimeInterval(2)
+    while process.isRunning && Date() < deadline {
+      RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+
+    if process.isRunning {
+      kill(process.processIdentifier, SIGKILL)
+      process.waitUntilExit()
     }
   }
 
@@ -476,6 +646,12 @@ final class BridgeStore: ObservableObject {
   }
 
   private func attachObservers(to instance: BridgeInstance) {
+    instance.objectWillChange
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
+
     instance.$name
       .sink { [weak self] _ in
         self?.saveState()

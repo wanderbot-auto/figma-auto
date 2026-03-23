@@ -16,17 +16,10 @@ struct MenuBarLabel: View {
   }
 }
 
-private enum ManagerScreen {
-  case dashboard
-  case logs
-}
-
-private enum LogFilterScope: String, CaseIterable, Identifiable {
+private enum LogFilterScope: String, Identifiable {
   case all = "All"
   case info = "Info"
-  case debug = "Debug"
   case error = "Error"
-  case warn = "Warn"
 
   var id: String { rawValue }
 }
@@ -35,19 +28,20 @@ struct ManagerView: View {
   @EnvironmentObject private var store: BridgeStore
 
   @State private var selectedInstanceID: UUID?
-  @State private var screen: ManagerScreen = .dashboard
   @State private var logFilter = ""
   @State private var logEntries: [BridgeLogEntry] = []
   @State private var logScope: LogFilterScope = .all
-  @State private var isLogRefreshPaused = false
-  @State private var isAutoScrollEnabled = true
   @State private var isDetailsExpanded = false
+  @State private var isLogsExpanded = false
   @State private var saveFeedbackText: String?
   @State private var utilityFeedbackText: String?
   @State private var saveFeedbackToken = UUID()
   @State private var utilityFeedbackToken = UUID()
 
   private let logRefreshTimer = Timer.publish(every: 1.2, on: .main, in: .common).autoconnect()
+  private let detailsDrawerMaxHeight: CGFloat = 252
+  private let logDrawerHeight: CGFloat = 242
+  private let bridgeListMaxHeight: CGFloat = 240
 
   var body: some View {
     ZStack {
@@ -61,15 +55,8 @@ struct ManagerView: View {
       )
       .ignoresSafeArea()
 
-      Group {
-        switch screen {
-        case .dashboard:
-          dashboardScreen
-        case .logs:
-          logsScreen
-        }
-      }
-      .padding(14)
+      dashboardScreen
+        .padding(14)
     }
     .frame(width: 448, height: 620, alignment: .topLeading)
     .onAppear {
@@ -82,13 +69,18 @@ struct ManagerView: View {
     }
     .onChange(of: selectedInstanceID) { _ in
       isDetailsExpanded = false
+      logFilter = ""
+      logScope = .all
       refreshLogEntries()
     }
-    .onChange(of: screen) { _ in
+    .onChange(of: isLogsExpanded) { expanded in
+      guard expanded else {
+        return
+      }
       refreshLogEntries()
     }
     .onReceive(logRefreshTimer) { _ in
-      guard screen == .logs, !isLogRefreshPaused else {
+      guard isLogsExpanded else {
         return
       }
       refreshLogEntries()
@@ -112,21 +104,18 @@ struct ManagerView: View {
   private var dashboardScreen: some View {
     VStack(spacing: 12) {
       dashboardToolbar
-      selectedInspector
-      bridgeListCard
-      footerStrip
-    }
-  }
 
-  private var logsScreen: some View {
-    VStack(spacing: 12) {
-      logsToolbar
-      logsHero
-      if isDetailsExpanded {
-        detailsDrawer
+      ScrollView(showsIndicators: false) {
+        VStack(spacing: 12) {
+          selectedInspector
+          if isLogsExpanded {
+            logsDrawer
+          }
+          bridgeListCard
+          footerStrip
+        }
+        .frame(maxWidth: .infinity)
       }
-      logControls
-      logPanel
     }
   }
 
@@ -166,16 +155,6 @@ struct ManagerView: View {
             .font(.system(size: 22, weight: .semibold))
             .foregroundStyle(BridgePalette.text100)
             .lineLimit(1)
-
-          if let selectedInstance {
-            Text(statusLine(for: selectedInstance))
-              .font(.system(size: 12, weight: .medium))
-              .foregroundStyle(BridgePalette.text200)
-          } else {
-            Text("Choose or create a bridge to begin.")
-              .font(.system(size: 12, weight: .medium))
-              .foregroundStyle(BridgePalette.text200)
-          }
         }
 
         Spacer(minLength: 0)
@@ -209,21 +188,37 @@ struct ManagerView: View {
           .buttonStyle(AppButtonStyle(kind: selectedInstance.status.isRunning || selectedInstance.status.isBusy ? .secondary : .primary))
           .disabled(hasValidationError)
 
-          Button("Build") {
-            store.build(selectedInstance)
-          }
-          .buttonStyle(AppButtonStyle(kind: .secondary))
-          .disabled(selectedInstance.status.isBusy || hasValidationError)
-
-          Button("Logs") {
-            openLogsScreen(for: selectedInstance)
+          Button(isLogsExpanded ? "Hide Logs" : "Logs") {
+            let shouldExpand = !isLogsExpanded
+            isLogsExpanded = shouldExpand
+            if shouldExpand {
+              isDetailsExpanded = false
+            }
+            if isLogsExpanded {
+              refreshLogEntries()
+            }
           }
           .buttonStyle(AppButtonStyle(kind: .ghost))
 
           Button(isDetailsExpanded ? "Hide Details" : "Details") {
-            isDetailsExpanded.toggle()
+            let shouldExpand = !isDetailsExpanded
+            isDetailsExpanded = shouldExpand
+            if shouldExpand {
+              isLogsExpanded = false
+            }
           }
           .buttonStyle(AppButtonStyle(kind: .ghost))
+
+          Button("Remove") {
+            if isLogsExpanded {
+              isLogsExpanded = false
+            }
+            if isDetailsExpanded {
+              isDetailsExpanded = false
+            }
+            store.removeInstance(selectedInstance)
+          }
+          .buttonStyle(AppButtonStyle(kind: .destructive))
         } else {
           Button("Add Bridge") {
             addBridge()
@@ -285,9 +280,6 @@ struct ManagerView: View {
                 status: instance.status,
                 select: {
                   selectedInstanceID = instance.id
-                },
-                openLogs: {
-                  openLogsScreen(for: instance)
                 }
               )
               .environmentObject(store)
@@ -295,10 +287,11 @@ struct ManagerView: View {
           }
           .padding(.top, 2)
         }
+        .frame(maxHeight: bridgeListMaxHeight)
       }
     }
     .padding(16)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .frame(maxWidth: .infinity, alignment: .topLeading)
     .background(cardBackground)
   }
 
@@ -313,6 +306,13 @@ struct ManagerView: View {
           .foregroundStyle(BridgePalette.text100)
           .lineLimit(1)
           .truncationMode(.middle)
+
+        if store.workspaceRootURL == nil {
+          Text(BridgeStore.recommendedWorkspaceHint)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(BridgePalette.text200)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
 
       Spacer(minLength: 0)
@@ -336,145 +336,88 @@ struct ManagerView: View {
     )
   }
 
-  private var logsToolbar: some View {
-    HStack(spacing: 8) {
-      Button {
-        screen = .dashboard
-      } label: {
-        Label("Overview", systemImage: "chevron.left")
+  private var logControls: some View {
+    HStack(spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: "magnifyingglass")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(BridgePalette.text300)
+        TextField("Filter log messages", text: $logFilter)
+          .textFieldStyle(.plain)
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(BridgePalette.text100)
       }
-      .buttonStyle(AppButtonStyle(kind: .secondary))
+      .padding(.horizontal, 12)
+      .frame(height: 34)
+      .background(
+        RoundedRectangle(cornerRadius: 11, style: .continuous)
+          .fill(.white)
+          .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+              .stroke(BridgePalette.border, lineWidth: 1)
+          )
+      )
 
-      instanceSwitcherMenu
-
-      Spacer(minLength: 0)
-
-      if let utilityFeedbackText {
-        NoticePill(text: utilityFeedbackText)
-      }
-
-      if let selectedInstance {
-        Button("Open File") {
-          store.openLogs(for: selectedInstance)
+      if !logFilter.isEmpty {
+        Button("Clear") {
+          logFilter = ""
         }
         .buttonStyle(AppButtonStyle(kind: .ghost))
       }
+
+      Spacer(minLength: 0)
+
+      Button(LogFilterScope.info.rawValue) {
+        toggleLogScope(.info)
+      }
+      .buttonStyle(FilterChipStyle(isSelected: logScope == .info))
+
+      Button(LogFilterScope.error.rawValue) {
+        toggleLogScope(.error)
+      }
+      .buttonStyle(FilterChipStyle(isSelected: logScope == .error))
+
+      Text("\(filteredLogEntries.count) entries")
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(BridgePalette.text200)
     }
   }
 
-  private var logsHero: some View {
-    HStack(alignment: .top, spacing: 14) {
-      VStack(alignment: .leading, spacing: 8) {
-        Text(selectedInstanceTitle)
-          .font(.system(size: 22, weight: .semibold))
-          .foregroundStyle(BridgePalette.text100)
+  private var logsDrawer: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .center, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Live Logs")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(BridgePalette.text100)
+
+          Text(selectedInstanceTitle)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(BridgePalette.text200)
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: 0)
 
         if let selectedInstance {
-          HStack(spacing: 8) {
-            StatusCapsule(status: selectedInstance.status)
-            Text("Port \(bridgePortText(for: selectedInstance))")
-              .font(.system(size: 12, weight: .semibold))
-              .foregroundStyle(BridgePalette.text200)
+          Button("Open File") {
+            store.openLogs(for: selectedInstance)
           }
+          .buttonStyle(AppButtonStyle(kind: .ghostCompact))
         }
+
+        Button("Hide") {
+          isLogsExpanded = false
+        }
+        .buttonStyle(AppButtonStyle(kind: .ghostCompact))
       }
 
-      Spacer(minLength: 0)
-
-      VStack(alignment: .trailing, spacing: 8) {
-        HStack(spacing: 8) {
-          if let selectedInstance {
-            Button("Start") {
-              store.start(selectedInstance)
-            }
-            .buttonStyle(AppButtonStyle(kind: .primary))
-            .disabled(selectedInstance.status.isRunning || selectedInstance.status.isBusy)
-
-            Button("Stop") {
-              store.stop(selectedInstance)
-            }
-            .buttonStyle(AppButtonStyle(kind: .secondary))
-            .disabled(!selectedInstance.status.isRunning && !selectedInstance.status.isBusy)
-          }
-        }
-
-        if selectedInstance != nil {
-          Button(isDetailsExpanded ? "Hide Details" : "Details") {
-            isDetailsExpanded.toggle()
-          }
-          .buttonStyle(AppButtonStyle(kind: .ghost))
-        }
-      }
+      logControls
+      logPanel
+        .frame(height: logDrawerHeight)
     }
-    .padding(18)
+    .padding(14)
     .background(cardBackground)
-  }
-
-  private var logControls: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 10) {
-        HStack(spacing: 8) {
-          Image(systemName: "magnifyingglass")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(BridgePalette.text300)
-          TextField("Filter log messages", text: $logFilter)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(BridgePalette.text100)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 34)
-        .background(
-          RoundedRectangle(cornerRadius: 11, style: .continuous)
-            .fill(.white)
-            .overlay(
-              RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(BridgePalette.border, lineWidth: 1)
-            )
-        )
-
-        if !logFilter.isEmpty {
-          Button("Clear") {
-            logFilter = ""
-          }
-          .buttonStyle(AppButtonStyle(kind: .ghost))
-        }
-      }
-
-      HStack(spacing: 8) {
-        ForEach(LogFilterScope.allCases) { scope in
-          Button(scope.rawValue) {
-            logScope = scope
-          }
-          .buttonStyle(FilterChipStyle(isSelected: logScope == scope))
-        }
-
-        Spacer(minLength: 0)
-
-        Text("\(filteredLogEntries.count) entries")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(BridgePalette.text200)
-      }
-
-      HStack(spacing: 8) {
-        Button(isLogRefreshPaused ? "Resume" : "Pause") {
-          isLogRefreshPaused.toggle()
-        }
-        .buttonStyle(AppButtonStyle(kind: .secondary))
-
-        Button(isAutoScrollEnabled ? "Auto-scroll On" : "Auto-scroll Off") {
-          isAutoScrollEnabled.toggle()
-        }
-        .buttonStyle(AppButtonStyle(kind: .ghost))
-
-        Button("Copy Visible") {
-          copyVisibleLogs()
-        }
-        .buttonStyle(AppButtonStyle(kind: .ghost))
-
-        Spacer(minLength: 0)
-      }
-    }
   }
 
   private var logPanel: some View {
@@ -482,7 +425,7 @@ struct ManagerView: View {
       VStack(spacing: 0) {
         HStack(spacing: 10) {
           Circle()
-            .fill(isLogRefreshPaused ? BridgePalette.logWarn : BridgePalette.success100)
+            .fill(BridgePalette.success100)
             .frame(width: 8, height: 8)
 
           Text("Live Bridge Log")
@@ -491,7 +434,7 @@ struct ManagerView: View {
 
           Spacer(minLength: 0)
 
-          Text(isLogRefreshPaused ? "paused" : "refreshing every 1.2s")
+          Text("refreshing every 1.2s")
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(BridgePalette.logMuted)
         }
@@ -515,7 +458,7 @@ struct ManagerView: View {
         }
         .background(BridgePalette.logSurface)
         .onChange(of: filteredLogEntries.map(\.id)) { ids in
-          guard isAutoScrollEnabled, let lastID = ids.last else {
+          guard let lastID = ids.last else {
             return
           }
           proxy.scrollTo(lastID, anchor: .bottom)
@@ -544,68 +487,95 @@ struct ManagerView: View {
         .buttonStyle(AppButtonStyle(kind: .ghostCompact))
       }
 
-      if let resolved = selectedResolvedConfiguration {
-        let selectedInstance = self.selectedInstance
+      ScrollView {
+        VStack(alignment: .leading, spacing: 10) {
+          if let resolved = selectedResolvedConfiguration {
+            let selectedInstance = self.selectedInstance
 
-        FileDetailRow(
-          title: "HTTP MCP",
-          value: resolved.bridgeHTTPURL,
-          copyAction: { copyValue(resolved.bridgeHTTPURL, label: "HTTP endpoint") },
-          openAction: {
-            if let url = URL(string: resolved.bridgeHTTPURL) {
-              NSWorkspace.shared.open(url)
-            }
-          }
-        )
+            FileDetailRow(
+              title: "HTTP MCP",
+              value: resolved.bridgeHTTPURL,
+              copyAction: { copyValue(resolved.bridgeHTTPURL) },
+              openAction: {
+                if let url = URL(string: resolved.bridgeHTTPURL) {
+                  NSWorkspace.shared.open(url)
+                }
+              }
+            )
 
-        FileDetailRow(
-          title: "Manifest",
-          value: resolved.manifestURL.path,
-          copyAction: { copyValue(resolved.manifestURL.path, label: "manifest path") },
-          openAction: {
-            if let selectedInstance {
-              store.openManifest(for: selectedInstance)
-            }
-          }
-        )
+            FileDetailRow(
+              title: "Manifest",
+              value: resolved.manifestURL.path,
+              copyAction: { copyValue(resolved.manifestURL.path) },
+              openAction: {
+                if let selectedInstance {
+                  store.openManifest(for: selectedInstance)
+                }
+              }
+            )
 
-        FileDetailRow(
-          title: "Bridge Log",
-          value: resolved.bridgeLogURL.path,
-          copyAction: { copyValue(resolved.bridgeLogURL.path, label: "bridge log path") },
-          openAction: {
-            if let selectedInstance {
-              store.openLogs(for: selectedInstance)
-            }
-          }
-        )
+            FileDetailRow(
+              title: "Bridge Log",
+              value: resolved.bridgeLogURL.path,
+              copyAction: { copyValue(resolved.bridgeLogURL.path) },
+              openAction: {
+                if let selectedInstance {
+                  store.openLogs(for: selectedInstance)
+                }
+              }
+            )
 
-        FileDetailRow(
-          title: "Audit Log",
-          value: resolved.auditLogURL.path,
-          copyAction: { copyValue(resolved.auditLogURL.path, label: "audit log path") },
-          openAction: {
-            if let selectedInstance {
-              store.openAuditLog(for: selectedInstance)
-            }
-          }
-        )
+            FileDetailRow(
+              title: "Audit Log",
+              value: resolved.auditLogURL.path,
+              copyAction: { copyValue(resolved.auditLogURL.path) },
+              openAction: {
+                if let selectedInstance {
+                  store.openAuditLog(for: selectedInstance)
+                }
+              }
+            )
 
-        FileDetailRow(
-          title: "Plugin Files",
-          value: resolved.pluginDistURL.path,
-          copyAction: { copyValue(resolved.pluginDistURL.path, label: "plugin path") },
-          openAction: {
-            if let selectedInstance {
-              store.openPluginFolder(for: selectedInstance)
+            FileDetailRow(
+              title: "Plugin Files",
+              value: resolved.pluginDistURL.path,
+              copyAction: { copyValue(resolved.pluginDistURL.path) },
+              openAction: {
+                if let selectedInstance {
+                  store.openPluginFolder(for: selectedInstance)
+                }
+              }
+            )
+          } else if let errorMessage = selectedResolvedConfigurationErrorMessage {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Details unavailable")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(BridgePalette.text100)
+
+              Text(errorMessage)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(BridgePalette.accent200)
+                .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.74))
+                .overlay(
+                  RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(BridgePalette.border, lineWidth: 1)
+                )
+            )
+          } else {
+            Text("Select a valid instance to inspect manifest, logs, audit output, and plugin files.")
+              .font(.system(size: 11, weight: .medium))
+              .foregroundStyle(BridgePalette.text200)
           }
-        )
-      } else {
-        Text("Select a valid instance to inspect manifest, logs, audit output, and plugin files.")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(BridgePalette.text200)
+        }
       }
+      .frame(height: detailsDrawerMaxHeight)
     }
     .padding(14)
     .background(
@@ -631,32 +601,6 @@ struct ManagerView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  private var instanceSwitcherMenu: some View {
-    Menu {
-      ForEach(store.instances) { instance in
-        Button {
-          selectedInstanceID = instance.id
-        } label: {
-          if instance.id == selectedInstance?.id {
-            Label(instance.name.isEmpty ? "Untitled Bridge" : instance.name, systemImage: "checkmark")
-          } else {
-            Text(instance.name.isEmpty ? "Untitled Bridge" : instance.name)
-          }
-        }
-      }
-    } label: {
-      HStack(spacing: 6) {
-        Text(selectedInstanceTitle)
-          .lineLimit(1)
-        Image(systemName: "chevron.up.chevron.down")
-          .font(.system(size: 9, weight: .semibold))
-      }
-    }
-    .menuStyle(.borderlessButton)
-    .buttonStyle(AppButtonStyle(kind: .secondary))
-    .disabled(store.instances.isEmpty)
-  }
-
   private var toolbarActionsMenu: some View {
     Menu {
       Button("Choose Workspace") {
@@ -669,11 +613,6 @@ struct ManagerView: View {
       .disabled(store.workspaceRootURL == nil)
 
       Divider()
-
-      Button("Build All") {
-        store.buildAll()
-      }
-      .disabled(store.instances.isEmpty)
 
       Button("Stop All") {
         store.stopAll()
@@ -738,6 +677,19 @@ struct ManagerView: View {
     return try? store.resolvedConfiguration(for: selectedInstance)
   }
 
+  private var selectedResolvedConfigurationErrorMessage: String? {
+    guard let selectedInstance else {
+      return nil
+    }
+
+    do {
+      _ = try store.resolvedConfiguration(for: selectedInstance)
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
   private var selectedNameValidationMessage: String? {
     guard let selectedInstance else {
       return nil
@@ -784,7 +736,8 @@ struct ManagerView: View {
   private func syncSelection() {
     guard !store.instances.isEmpty else {
       selectedInstanceID = nil
-      screen = .dashboard
+      isLogsExpanded = false
+      isDetailsExpanded = false
       return
     }
 
@@ -802,13 +755,6 @@ struct ManagerView: View {
     } else {
       store.start(instance)
     }
-  }
-
-  private func openLogsScreen(for instance: BridgeInstance) {
-    selectedInstanceID = instance.id
-    logFilter = ""
-    logScope = .all
-    screen = .logs
   }
 
   private func bridgePortText(for instance: BridgeInstance) -> String {
@@ -879,13 +825,13 @@ struct ManagerView: View {
       return true
     case .info:
       return entry.level == .info
-    case .debug:
-      return entry.level == .debug
     case .error:
       return entry.level == .error
-    case .warn:
-      return entry.level == .warn
     }
+  }
+
+  private func toggleLogScope(_ scope: LogFilterScope) {
+    logScope = logScope == scope ? .all : scope
   }
 
   private func matchesSearch(_ entry: BridgeLogEntry) -> Bool {
@@ -897,7 +843,7 @@ struct ManagerView: View {
   }
 
   private func refreshLogEntries() {
-    guard screen == .logs, let selectedInstance else {
+    guard isLogsExpanded, let selectedInstance else {
       return
     }
 
@@ -925,7 +871,7 @@ struct ManagerView: View {
   }
 
   private func noteEdited() {
-    showSaveFeedback(selectedNameValidationMessage == nil && selectedPortValidationMessage == nil ? "Saved just now" : "Needs attention")
+    showSaveFeedback(selectedNameValidationMessage == nil && selectedPortValidationMessage == nil ? "Saved!" : "Needs attention")
   }
 
   private func showSaveFeedback(_ text: String) {
@@ -950,25 +896,9 @@ struct ManagerView: View {
     }
   }
 
-  private func copyValue(_ value: String, label: String) {
+  private func copyValue(_ value: String) -> Bool {
     NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(value, forType: .string)
-    showUtilityFeedback("Copied \(label)")
-  }
-
-  private func copyVisibleLogs() {
-    guard !filteredLogEntries.isEmpty else {
-      showUtilityFeedback("No visible logs to copy")
-      return
-    }
-
-    let payload = filteredLogEntries
-      .map { "\($0.timestamp) \($0.level.rawValue) \($0.message)" }
-      .joined(separator: "\n")
-
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(payload, forType: .string)
-    showUtilityFeedback("Copied \(filteredLogEntries.count) log lines")
+    return NSPasteboard.general.setString(value, forType: .string)
   }
 
   private func fallbackEntries(for instance: BridgeInstance) -> [BridgeLogEntry] {
@@ -1063,7 +993,6 @@ private struct BridgeRow: View {
   let visualStyle: BridgeVisualStyle
   let status: BridgeRuntimeStatus
   let select: () -> Void
-  let openLogs: () -> Void
 
   @State private var isHovering = false
 
@@ -1093,11 +1022,6 @@ private struct BridgeRow: View {
       Spacer(minLength: 0)
 
       StatusCapsule(status: status)
-
-      Button("Logs") {
-        openLogs()
-      }
-      .buttonStyle(AppButtonStyle(kind: .ghostCompact))
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
@@ -1115,12 +1039,6 @@ private struct BridgeRow: View {
       isHovering = hovering
     }
     .contextMenu {
-      Button("Open Log View") {
-        openLogs()
-      }
-
-      Divider()
-
       if instance.status.isRunning || instance.status.isBusy {
         Button("Stop") {
           store.stop(instance)
@@ -1129,15 +1047,6 @@ private struct BridgeRow: View {
         Button("Start") {
           store.start(instance)
         }
-      }
-
-      Button("Build") {
-        store.build(instance)
-      }
-      .disabled(instance.status.isBusy)
-
-      Button(instance.autoBuild ? "Disable Auto Build" : "Enable Auto Build") {
-        instance.autoBuild.toggle()
       }
 
       Divider()
@@ -1381,8 +1290,11 @@ private struct NoticePill: View {
 private struct FileDetailRow: View {
   let title: String
   let value: String
-  let copyAction: () -> Void
+  let copyAction: () -> Bool
   let openAction: () -> Void
+
+  @State private var copyButtonLabel = "Copy"
+  @State private var copyFeedbackToken = UUID()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
@@ -1393,8 +1305,10 @@ private struct FileDetailRow: View {
 
         Spacer(minLength: 0)
 
-        Button("Copy") {
-          copyAction()
+        Button(copyButtonLabel) {
+          if copyAction() {
+            showCopiedFeedback()
+          }
         }
         .buttonStyle(InlineTextActionStyle())
 
@@ -1421,6 +1335,17 @@ private struct FileDetailRow: View {
             .stroke(BridgePalette.border, lineWidth: 1)
         )
     )
+  }
+
+  private func showCopiedFeedback() {
+    copyButtonLabel = "Copied!"
+    let current = UUID()
+    copyFeedbackToken = current
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+      if copyFeedbackToken == current {
+        copyButtonLabel = "Copy"
+      }
+    }
   }
 }
 
@@ -1533,6 +1458,7 @@ private struct AppButtonStyle: ButtonStyle {
     case secondary
     case ghost
     case ghostCompact
+    case destructive
   }
 
   let kind: Kind
@@ -1561,6 +1487,8 @@ private struct AppButtonStyle: ButtonStyle {
       return BridgePalette.text100
     case .ghost, .ghostCompact:
       return BridgePalette.primary100
+    case .destructive:
+      return BridgePalette.accent200
     }
   }
 
@@ -1572,6 +1500,8 @@ private struct AppButtonStyle: ButtonStyle {
       return .white
     case .ghost, .ghostCompact:
       return BridgePalette.primarySoft
+    case .destructive:
+      return BridgePalette.destructiveBackground
     }
   }
 
@@ -1583,6 +1513,8 @@ private struct AppButtonStyle: ButtonStyle {
       return BridgePalette.border
     case .ghost, .ghostCompact:
       return BridgePalette.primaryBorder
+    case .destructive:
+      return BridgePalette.destructiveBorder
     }
   }
 
@@ -1590,7 +1522,7 @@ private struct AppButtonStyle: ButtonStyle {
     switch kind {
     case .ghostCompact:
       return 10
-    case .primary, .secondary, .ghost:
+    case .primary, .secondary, .ghost, .destructive:
       return 12
     }
   }
@@ -1599,7 +1531,7 @@ private struct AppButtonStyle: ButtonStyle {
     switch kind {
     case .ghostCompact:
       return 7
-    case .primary, .secondary, .ghost:
+    case .primary, .secondary, .ghost, .destructive:
       return 8
     }
   }
@@ -1608,7 +1540,7 @@ private struct AppButtonStyle: ButtonStyle {
     switch kind {
     case .ghostCompact:
       return 10
-    case .primary, .secondary, .ghost:
+    case .primary, .secondary, .ghost, .destructive:
       return 12
     }
   }
@@ -1620,18 +1552,17 @@ private struct FilterChipStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.system(size: 11, weight: .semibold))
-      .foregroundStyle(isSelected ? BridgePalette.primary100 : BridgePalette.text200)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
+      .foregroundStyle((isSelected ? BridgePalette.primary100 : BridgePalette.text200).opacity(configuration.isPressed ? 0.82 : 1))
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
       .background(
-        Capsule()
-          .fill(isSelected ? BridgePalette.primarySoft : .white.opacity(0.72))
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill((isSelected ? BridgePalette.primarySoft : .white).opacity(configuration.isPressed ? 0.82 : 1))
           .overlay(
-            Capsule()
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
               .stroke(isSelected ? BridgePalette.primaryBorder : BridgePalette.border, lineWidth: 1)
           )
       )
-      .opacity(configuration.isPressed ? 0.84 : 1)
   }
 }
 
