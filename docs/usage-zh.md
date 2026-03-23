@@ -1,5 +1,7 @@
 # 功能与用法
 
+如果你要完整启动项目、排查连接问题，或者配置 Codex / Trae 的 `figma-auto` MCP，请优先看 `docs/setup-and-mcp-manual.md`。
+
 `figma-auto` 是一个本地 Figma MCP 桥接项目，用来把外部 MCP 客户端的请求转发到正在运行的 Figma 本地插件。
 
 ## 项目组成
@@ -10,6 +12,22 @@
 - `apps/bridge-manager-macos`: 可选的 macOS 菜单栏管理器，用来管理多个 bridge 实例
 
 ## 当前功能
+
+### 资源能力
+
+- 静态资源：
+  - `figma://session/status`
+  - `figma://file/current`
+  - `figma://page/current`
+  - `figma://selection/current`
+  - `figma://pages`
+  - `figma://styles`
+  - `figma://components`
+  - `figma://variables`
+- 资源模板：
+  - `figma://node/{nodeId}`
+  - `figma://node-tree/{nodeId}`
+  - `figma://flow/{pageId}`
 
 ### 会话与状态
 
@@ -144,13 +162,24 @@ npm run build
 url = "http://localhost:4318/mcp"
 ```
 
+如果你的客户端还停留在旧版 HTTP+SSE transport，而不是新的 streamable HTTP，则改用：
+
+- SSE 建连地址：`http://localhost:4318/sse`
+- 消息 POST 地址：客户端会从 endpoint event 中拿到 `http://localhost:4318/messages?sessionId=...`
+
 5. 先调用 `figma.get_session_status`。返回 `connected: true` 以后，再开始读写文件。
+
+补充：
+
+- 当前 bridge 同时暴露 `tools` 和一组只读 `resources/resourceTemplates`。
+- 如果你在 MCP 客户端里看到 `resources = []`、`resourceTemplates = []`，通常说明你连接到的是旧版 bridge 构建产物，还没有包含资源注册逻辑。
 
 说明：
 
 - `apps/mcp-bridge/dist/index.js` 是真正的 MCP bridge 进程入口。
 - 如果客户端用 stdio 模式，它会自己启动这个进程。
 - 如果 bridge 已经在跑，客户端应该连 `http://localhost:<port>/mcp`，不要再重复启动同一个端口上的 bridge。
+- 对 Trae 一类旧版 SSE 客户端，应配置到 `http://localhost:<port>/sse`，不要指向 `/mcp`。
 
 ### 方式二：本地调试 bridge 和插件
 

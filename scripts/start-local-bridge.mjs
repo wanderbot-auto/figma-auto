@@ -157,7 +157,7 @@ const defaultBridgePort = await resolveDefaultBridgePort();
 const instanceName = resolveInstanceName(requestedInstance);
 const fallbackBridgePort = instanceName ? deriveInstancePort(defaultBridgePort, instanceName) : defaultBridgePort;
 const bridgePort = Number.parseInt(requestedPort || `${fallbackBridgePort}`, 10);
-const resolvedBridgePort = Number.isNaN(bridgePort) ? defaultBridgePort : bridgePort;
+const resolvedBridgePort = Number.isNaN(bridgePort) ? fallbackBridgePort : bridgePort;
 const bridgeHost = process.env.FIGMA_AUTO_BRIDGE_HOST ?? "localhost";
 const bridgeWsUrl = process.env.FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL ?? `ws://${bridgeHost}:${resolvedBridgePort}`;
 const bridgeHttpUrl =
@@ -219,6 +219,7 @@ const bridgeProcess = spawn(process.execPath, [bridgeEntryPath], {
     FIGMA_AUTO_BRIDGE_HOST: bridgeHost,
     FIGMA_AUTO_BRIDGE_PUBLIC_WS_URL: bridgeWsUrl,
     FIGMA_AUTO_BRIDGE_PUBLIC_HTTP_URL: bridgeHttpUrl,
+    FIGMA_AUTO_BRIDGE_LOG_PATH: bridgeLogPath,
     FIGMA_AUTO_AUDIT_LOG_PATH: auditLogPath
   },
   stdio: ["inherit", "pipe", "pipe"]

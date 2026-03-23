@@ -1,4 +1,5 @@
 import path from "node:path";
+import { type ListenOptions } from "node:net";
 
 import { BRIDGE_PORT } from "@figma-auto/protocol";
 
@@ -7,6 +8,21 @@ export function resolvePublicMcpHttpUrl(publicHttpUrl: string): string {
   const normalizedPath = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
   url.pathname = normalizedPath.endsWith("/mcp") ? normalizedPath : `${normalizedPath}/mcp`;
   return url.toString();
+}
+
+export function resolveBridgeListenOptions(host: string, port: number): ListenOptions {
+  if (host === "localhost") {
+    return {
+      host: "::",
+      port,
+      ipv6Only: false
+    };
+  }
+
+  return {
+    host,
+    port
+  };
 }
 
 const workspaceRoot = path.resolve(import.meta.dirname, "../../..");

@@ -4,14 +4,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { type GetSessionStatusResult, type ToolName } from "@figma-auto/protocol";
 
-import { bridgeConfig } from "./config.js";
+import { bridgeConfig, resolveBridgeListenOptions } from "./config.js";
 import { AuditLogger, type AuditMode } from "./logging/audit-log.js";
 import { BridgeLogger } from "./logging/bridge-log.js";
 import { formatJson } from "./format.js";
+import { registerBridgeResources } from "./resources.js";
 import { coerceProtocolError, validationIssuesToProtocolError } from "./errors.js";
 import { PluginSessionStore } from "./session/plugin-session-store.js";
 import { toolDefinitions } from "./tools/index.js";
 import { RemoteMcpHttpServer } from "./transport/mcp-http.js";
+import { RemoteMcpSseServer } from "./transport/mcp-sse.js";
 import { PluginWebSocketBridge } from "./transport/websocket.js";
 
 function formatHttpListenError(error: Error & { code?: string }, host: string, port: number): string {
@@ -32,7 +34,14 @@ export class FigmaAutoBridgeServer {
   private readonly auditLogger = new AuditLogger(bridgeConfig.auditLogPath);
   private readonly bridgeLogger = new BridgeLogger(bridgeConfig.bridgeLogPath);
   private readonly httpServer = createServer((req, res) => {
-    this.httpBridge.handleRequest(req, res).catch((error) => {
+    (async () => {
+      const handledBySseBridge = await this.sseBridge.handleRequest(req, res);
+      if (handledBySseBridge) {
+        return;
+      }
+
+      await this.httpBridge.handleRequest(req, res);
+    })().catch((error) => {
       const protocolError = coerceProtocolError(error);
       void this.bridgeLogger.error("mcp_http_request_failed", {
         code: protocolError.code,
@@ -69,6 +78,12 @@ export class FigmaAutoBridgeServer {
     bridgeConfig.mcpHttpPath,
     this.bridgeLogger
   );
+  private readonly sseBridge = new RemoteMcpSseServer(
+    () => this.createMcpServer(),
+    "/sse",
+    "/messages",
+    this.bridgeLogger
+  );
 
   constructor() {}
 
@@ -87,7 +102,9 @@ export class FigmaAutoBridgeServer {
       const transport = new StdioServerTransport();
       await this.stdioMcpServer.connect(transport);
       await this.bridgeLogger.info("bridge_ready", {
-        publicMcpHttpUrl: bridgeConfig.publicMcpHttpUrl
+        publicMcpHttpUrl: bridgeConfig.publicMcpHttpUrl,
+        legacySseUrl: `${bridgeConfig.publicHttpUrl.replace(/\/+$/, "")}/sse`,
+        legacyMessagesUrl: `${bridgeConfig.publicHttpUrl.replace(/\/+$/, "")}/messages`
       });
     } catch (error) {
       const protocolError = coerceProtocolError(error);
@@ -105,6 +122,12 @@ export class FigmaAutoBridgeServer {
       version: "0.1.0"
     });
     this.registerTools(mcpServer);
+    registerBridgeResources({
+      mcpServer,
+      sessionStore: this.sessionStore,
+      wsBridge: this.wsBridge,
+      getSessionStatus: () => this.getSessionStatus()
+    });
     return mcpServer;
   }
 
@@ -128,7 +151,7 @@ export class FigmaAutoBridgeServer {
 
       this.httpServer.once("listening", onListening);
       this.httpServer.once("error", onError);
-      this.httpServer.listen(bridgeConfig.port, bridgeConfig.host);
+      this.httpServer.listen(resolveBridgeListenOptions(bridgeConfig.host, bridgeConfig.port));
     });
 
     this.httpServer.on("error", (error: Error & { code?: string }) => {

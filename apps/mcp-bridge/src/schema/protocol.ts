@@ -4,8 +4,14 @@ import {
   sessionRegistrationPayloadSchema
 } from "@figma-auto/protocol";
 
+import { ProtocolFailure } from "../errors.js";
+
 export function parseIncomingMessage(raw: string): unknown {
-  return JSON.parse(raw) as unknown;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new ProtocolFailure("validation_failed", "Invalid JSON message");
+  }
 }
 
 export const bridgeRequestSchema = requestEnvelopeSchema;

@@ -45,4 +45,20 @@ final class BridgeConfigurationTests: XCTestCase {
     )
     XCTAssertEqual(resolved.bridgePort, 4462)
   }
+
+  func testResolveRejectsOutOfRangePortOverride() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    try "{}".write(to: tempRoot.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+
+    let config = BridgeInstanceConfig(name: "maker-portfolio", portOverride: "70000")
+
+    XCTAssertThrowsError(try BridgeConfigurationResolver.resolve(workspaceRoot: tempRoot, config: config)) { error in
+      XCTAssertEqual(
+        error.localizedDescription,
+        "Port override must be between 1 and 65535: 70000"
+      )
+    }
+  }
 }

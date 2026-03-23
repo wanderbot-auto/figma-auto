@@ -66,11 +66,11 @@ enum BridgeRuntimeStatus: Equatable {
   var tint: Color {
     switch self {
     case .running:
-      return BridgePalette.primary100
+      return BridgePalette.success100
     case .building, .starting:
-      return BridgePalette.accent100
+      return BridgePalette.primary100
     case .stopping, .stopped:
-      return BridgePalette.bg300
+      return BridgePalette.text300
     case .failed:
       return BridgePalette.accent200
     }

@@ -308,6 +308,7 @@ async function dryRunOperation(
         ...base,
         ok: true,
         wouldChange: true,
+        createdNodeId: operation.opId ? makeSyntheticId(opKey(operation, index), "createdNodeId") : undefined,
         preview: {
           after: { name: operation.name }
         }
@@ -596,7 +597,8 @@ async function runOperation(
         ...base,
         ok: true,
         wouldChange: true,
-        result: asRecord(result)
+        result: asRecord(result),
+        createdNodeId: result.page.id
       };
     }
     case "create_frame": {

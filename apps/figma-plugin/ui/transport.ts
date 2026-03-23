@@ -66,7 +66,11 @@ export class BridgeTransport {
       return;
     }
 
-    this.socket.send(JSON.stringify(response));
+    try {
+      this.socket.send(JSON.stringify(response));
+    } catch {
+      this.emitStatus("error", "Failed to forward response to local bridge");
+    }
   }
 
   private connect(): void {
@@ -91,9 +95,13 @@ export class BridgeTransport {
     });
 
     socket.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data as string) as RequestEnvelope | ResponseEnvelope;
-      if ("type" in message) {
-        this.onBridgeRequest(message);
+      try {
+        const message = JSON.parse(event.data as string) as RequestEnvelope | ResponseEnvelope;
+        if ("type" in message) {
+          this.onBridgeRequest(message);
+        }
+      } catch {
+        this.emitStatus("error", "Received an invalid message from the local bridge");
       }
     });
 

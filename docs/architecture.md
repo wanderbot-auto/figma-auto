@@ -9,7 +9,7 @@ This document describes the code that exists now.
   Main files: `packages/protocol/src/messages.ts`, `packages/protocol/src/zod.ts`
 
 - `apps/mcp-bridge`
-  Owns MCP registration, streamable HTTP and stdio transports, active-session management, WebSocket transport, and audit logging.
+  Owns MCP registration, streamable HTTP, legacy SSE, and stdio transports, active-session management, WebSocket transport, and audit logging.
   Main files:
   `apps/mcp-bridge/src/server.ts`
   `apps/mcp-bridge/src/transport/mcp-http.ts`
@@ -37,7 +37,7 @@ This document describes the code that exists now.
 ## Request Flow
 
 1. A bridge process starts and listens on one local port.
-2. MCP clients either start that process over stdio or connect to its streamable HTTP endpoint at `/mcp`.
+2. MCP clients either start that process over stdio, connect to its streamable HTTP endpoint at `/mcp`, or use the legacy SSE endpoints at `/sse` and `/messages`.
 3. The same bridge process accepts plugin WebSocket connections on that port.
 4. Figma loads the plugin UI, and the UI transport connects to the bridge WebSocket.
 5. Plugin UI sends `session.register`.

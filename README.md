@@ -33,6 +33,11 @@ Then load `apps/figma-plugin/manifest.json` as a local plugin in Figma and run i
 
 If you want a long-running bridge process that Codex can attach to, the same bridge also exposes a remote MCP endpoint at `http://localhost:<port>/mcp`.
 
+For older MCP clients that still expect the deprecated HTTP+SSE transport, the bridge also exposes:
+
+- `http://localhost:<port>/sse`
+- `http://localhost:<port>/messages`
+
 ## Windows
 
 Windows is supported for local development and bridge startup.
@@ -59,6 +64,7 @@ npm run start:local
 
 ## Docs
 
+- `docs/setup-and-mcp-manual.md`: complete startup, verification, Codex MCP, and Trae MCP manual
 - `docs/local-dev.md`: local commands, env vars, troubleshooting
 - `docs/usage-zh.md`: Chinese feature overview and practical usage guide
 - `docs/macos-menu-bar-app.md`: macOS status bar app for managing multiple bridge instances

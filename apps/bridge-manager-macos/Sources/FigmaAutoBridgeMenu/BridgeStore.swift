@@ -134,6 +134,24 @@ final class BridgeStore: ObservableObject {
     }
   }
 
+  func openAuditLog(for instance: BridgeInstance) {
+    do {
+      let resolved = try resolvedConfiguration(for: instance)
+      openFileOrParent(resolved.auditLogURL)
+    } catch {
+      instance.setStatus(.failed(error.localizedDescription), errorMessage: error.localizedDescription)
+    }
+  }
+
+  func openPluginFolder(for instance: BridgeInstance) {
+    do {
+      let resolved = try resolvedConfiguration(for: instance)
+      openFileOrParent(resolved.pluginDistURL)
+    } catch {
+      instance.setStatus(.failed(error.localizedDescription), errorMessage: error.localizedDescription)
+    }
+  }
+
   func start(_ instance: BridgeInstance) {
     Task {
       await startInstance(instance)
@@ -458,7 +476,19 @@ final class BridgeStore: ObservableObject {
   }
 
   private func attachObservers(to instance: BridgeInstance) {
-    instance.objectWillChange
+    instance.$name
+      .sink { [weak self] _ in
+        self?.saveState()
+      }
+      .store(in: &cancellables)
+
+    instance.$portOverride
+      .sink { [weak self] _ in
+        self?.saveState()
+      }
+      .store(in: &cancellables)
+
+    instance.$autoBuild
       .sink { [weak self] _ in
         self?.saveState()
       }

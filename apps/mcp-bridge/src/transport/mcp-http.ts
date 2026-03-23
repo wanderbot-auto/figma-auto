@@ -5,7 +5,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { type Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
+import { ProtocolFailure } from "../errors.js";
 import { type BridgeLogger } from "../logging/bridge-log.js";
+import { readJsonBody, writeJsonRpcError } from "./http-utils.js";
 
 interface HttpMcpSession {
   server: McpServer;
@@ -15,42 +17,6 @@ interface HttpMcpSession {
 function getSessionId(req: IncomingMessage): string | undefined {
   const header = req.headers["mcp-session-id"];
   return typeof header === "string" && header.length > 0 ? header : undefined;
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
-  if (chunks.length === 0) {
-    return undefined;
-  }
-
-  const rawBody = Buffer.concat(chunks).toString("utf8").trim();
-  if (rawBody.length === 0) {
-    return undefined;
-  }
-
-  return JSON.parse(rawBody);
-}
-
-function writeJsonRpcError(
-  res: ServerResponse,
-  statusCode: number,
-  code: number,
-  message: string
-): void {
-  res.writeHead(statusCode, { "content-type": "application/json" });
-  res.end(JSON.stringify({
-    jsonrpc: "2.0",
-    error: {
-      code,
-      message
-    },
-    id: null
-  }));
 }
 
 export function isInitializeRequestBody(body: unknown): body is { method: "initialize" } {
@@ -73,7 +39,7 @@ export class RemoteMcpHttpServer {
 
   async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!isMcpRequestPath(req.url, this.mcpPath)) {
-      res.writeHead(404).end("Not Found");
+      writeJsonRpcError(res, 404, -32000, "Not Found");
       return;
     }
 
@@ -88,7 +54,9 @@ export class RemoteMcpHttpServer {
       await this.handleDelete(req, res);
       return;
     default:
-      res.writeHead(405, { Allow: "GET, POST, DELETE" }).end("Method Not Allowed");
+      writeJsonRpcError(res, 405, -32000, "Method Not Allowed", {
+        Allow: "GET, POST, DELETE"
+      });
     }
   }
 
@@ -103,7 +71,16 @@ export class RemoteMcpHttpServer {
   }
 
   private async handlePost(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const body = await readJsonBody(req);
+    let body: unknown;
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      if (error instanceof ProtocolFailure && error.protocolError.code === "validation_failed") {
+        writeJsonRpcError(res, 400, -32700, error.message);
+        return;
+      }
+      throw error;
+    }
     const sessionId = getSessionId(req);
 
     if (sessionId) {
@@ -163,13 +140,15 @@ export class RemoteMcpHttpServer {
   private async handleGet(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const sessionId = getSessionId(req);
     if (!sessionId) {
-      res.writeHead(405, { Allow: "POST, DELETE" }).end("Method Not Allowed");
+      writeJsonRpcError(res, 405, -32000, "Method Not Allowed", {
+        Allow: "POST, DELETE"
+      });
       return;
     }
 
     const session = this.sessions.get(sessionId);
     if (!session) {
-      res.writeHead(404).end("Unknown MCP session");
+      writeJsonRpcError(res, 404, -32001, `Unknown MCP session: ${sessionId}`);
       return;
     }
 

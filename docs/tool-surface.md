@@ -1,6 +1,23 @@
 # Tool Surface
 
-This is the current MCP surface registered by `apps/mcp-bridge/src/tools/index.ts`.
+This is the current MCP surface registered by `apps/mcp-bridge/src/tools/index.ts` and `apps/mcp-bridge/src/resources.ts`.
+
+## Resources
+
+- `figma://session/status`
+- `figma://file/current`
+- `figma://page/current`
+- `figma://selection/current`
+- `figma://pages`
+- `figma://styles`
+- `figma://components`
+- `figma://variables`
+
+## Resource Templates
+
+- `figma://node/{nodeId}`
+- `figma://node-tree/{nodeId}`
+- `figma://flow/{pageId}`
 
 ## Session
 
@@ -11,6 +28,7 @@ This is the current MCP surface registered by `apps/mcp-bridge/src/tools/index.t
 
 - `figma.get_file`
 - `figma.get_current_page`
+- `figma.get_flow`
 - `figma.get_selection`
 - `figma.list_pages`
 - `figma.get_node`
@@ -35,6 +53,7 @@ This is the current MCP surface registered by `apps/mcp-bridge/src/tools/index.t
 - `figma.update_node_properties`
 - `figma.set_instance_properties`
 - `figma.set_image_fill`
+- `figma.set_reactions`
 - `figma.move_node`
 - `figma.delete_node`
 

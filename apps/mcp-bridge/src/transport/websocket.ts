@@ -131,6 +131,11 @@ export class PluginWebSocketBridge {
     };
 
     const response = await new Promise<unknown>((resolve, reject) => {
+      const failPending = (reason: unknown) => {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(reason);
+      };
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         reject(new ProtocolFailure("internal_error", `Timed out waiting for plugin response for ${type}`));
@@ -143,7 +148,17 @@ export class PluginWebSocketBridge {
         reject
       });
 
-      session.socket.send(JSON.stringify(envelope));
+      try {
+        session.socket.send(JSON.stringify(envelope), (error?: Error) => {
+          if (!error) {
+            return;
+          }
+
+          failPending(new ProtocolFailure("missing_session", "Failed to send request to the active plugin session"));
+        });
+      } catch {
+        failPending(new ProtocolFailure("missing_session", "Failed to send request to the active plugin session"));
+      }
     });
 
     const parsed = bridgeResponseSchema.parse(response) as ResponseEnvelope<TResult>;

@@ -1,5 +1,7 @@
 # Local Development
 
+For the full end-to-end setup, health checks, and Codex / Trae MCP configuration, start with `docs/setup-and-mcp-manual.md`.
+
 ## Main Commands
 
 ```bash
@@ -33,6 +35,11 @@ If Codex should attach to an already running bridge, use the remote MCP endpoint
 
 - `http://localhost:<port>/mcp`
 
+For older clients that still use the deprecated HTTP+SSE MCP transport, use:
+
+- `http://localhost:<port>/sse`
+  Then POST messages to the `http://localhost:<port>/messages?sessionId=<id>` URL from the SSE endpoint event.
+
 ### macOS Status Bar App
 
 Use the Swift status bar app if you want to manage multiple bridge instances without manually running the shell wrapper.
@@ -56,6 +63,7 @@ The app stores its state in `~/Library/Application Support/figma-auto/bridge-man
 When a bridge instance is running, Codex can connect to it as a remote MCP server at:
 
 - `http://localhost:<instance-port>/mcp`
+- `http://localhost:<instance-port>/sse` for legacy SSE clients
 
 ### Multiple Local Instances
 
@@ -125,6 +133,7 @@ The wrapper script already defaults local runs to `localhost`; if you start the 
 - MCP startup says `startup incomplete` or logs `EADDRINUSE`
   Do not keep a menu bar app or `npm run start:local` bridge running for the same instance/port that your MCP client is configured to launch.
   MCP clients should either start `apps/mcp-bridge/dist/index.js` directly or connect to the already running bridge at `http://localhost:<port>/mcp`.
+  Older SSE-only clients should connect to `http://localhost:<port>/sse` instead of `/mcp`.
   If you want multiple clients/files at once, give each client its own instance name and port, then import the matching generated plugin manifest.
 
 - Menu bar app is already running the bridge and Codex still cannot see tools

@@ -42,6 +42,7 @@ enum BridgeConfigurationError: LocalizedError {
   case invalidWorkspaceRoot(URL)
   case invalidInstanceName
   case invalidPort(String)
+  case outOfRangePort(Int)
 
   var errorDescription: String? {
     switch self {
@@ -53,6 +54,8 @@ enum BridgeConfigurationError: LocalizedError {
       return "Instance name is empty after normalization."
     case let .invalidPort(rawValue):
       return "Invalid port override: \(rawValue)"
+    case let .outOfRangePort(port):
+      return "Port override must be between 1 and 65535: \(port)"
     }
   }
 }
@@ -128,6 +131,9 @@ enum BridgeConfigurationResolver {
     if config.portOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       bridgePort = deriveInstancePort(defaultPort: defaultPort, instanceName: instanceName)
     } else if let overridePort = Int(config.portOverride) {
+      guard (1...65535).contains(overridePort) else {
+        throw BridgeConfigurationError.outOfRangePort(overridePort)
+      }
       bridgePort = overridePort
     } else {
       throw BridgeConfigurationError.invalidPort(config.portOverride)
