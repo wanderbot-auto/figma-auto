@@ -21,6 +21,7 @@ import {
   findNodesPayloadSchema,
   getComponentsPayloadSchema,
   getFlowPayloadSchema,
+  getNodePayloadSchema,
   getVariablesPayloadSchema,
   getStylesPayloadSchema,
   getNodeTreePayloadSchema,
@@ -82,9 +83,30 @@ test("error envelope requires a stable error code", () => {
 });
 
 test("node tree payload accepts omitted nodeId and explicit depth", () => {
-  const parsed = getNodeTreePayloadSchema.parse({ depth: 2 });
+  const parsed = getNodeTreePayloadSchema.parse({
+    depth: 2,
+    summaryOnly: true,
+    includeDesign: false,
+    includePrototype: false,
+    includeTextContent: false
+  });
   assert.equal(parsed.depth, 2);
   assert.equal(parsed.nodeId, undefined);
+  assert.equal(parsed.summaryOnly, true);
+  assert.equal(parsed.includeDesign, false);
+});
+
+test("get node payload accepts lightweight detail flags", () => {
+  const parsed = getNodePayloadSchema.parse({
+    nodeId: "1:2",
+    includeDesign: false,
+    includePrototype: false,
+    includeTextContent: false,
+    includePaints: false
+  });
+
+  assert.equal(parsed.nodeId, "1:2");
+  assert.equal(parsed.includePaints, false);
 });
 
 test("get flow payload accepts an omitted or explicit pageId", () => {
@@ -99,7 +121,8 @@ test("find nodes payload accepts page-scoped filters", () => {
     type: "frame",
     styleId: "S:1:2",
     instanceOnly: true,
-    limit: 25
+    limit: 25,
+    stopAtLimit: true
   });
   assert.equal(parsed.nameContains, "home");
   assert.equal(parsed.textContains, "cta");
@@ -107,6 +130,7 @@ test("find nodes payload accepts page-scoped filters", () => {
   assert.equal(parsed.styleId, "S:1:2");
   assert.equal(parsed.instanceOnly, true);
   assert.equal(parsed.limit, 25);
+  assert.equal(parsed.stopAtLimit, true);
 });
 
 test("find nodes payload requires at least one filter", () => {
@@ -120,15 +144,28 @@ test("delete node payload requires an explicit destructive confirmation", () => 
 });
 
 test("create frame payload accepts partial geometry", () => {
-  const parsed = createFramePayloadSchema.parse({ name: "Frame", width: 320, height: 240 });
+  const parsed = createFramePayloadSchema.parse({
+    name: "Frame",
+    width: 320,
+    height: 240,
+    returnNodeDetails: false
+  });
   assert.equal(parsed.width, 320);
   assert.equal(parsed.height, 240);
+  assert.equal(parsed.returnNodeDetails, false);
 });
 
 test("create rectangle payload accepts geometry and corner radius", () => {
-  const parsed = createRectanglePayloadSchema.parse({ name: "Card", width: 320, height: 180, cornerRadius: 20 });
+  const parsed = createRectanglePayloadSchema.parse({
+    name: "Card",
+    width: 320,
+    height: 180,
+    cornerRadius: 20,
+    returnNodeDetails: false
+  });
   assert.equal(parsed.width, 320);
   assert.equal(parsed.cornerRadius, 20);
+  assert.equal(parsed.returnNodeDetails, false);
 });
 
 test("update node properties payload accepts layout and paint patches", () => {
@@ -214,12 +251,14 @@ test("set instance properties payload accepts variants, component properties, an
       "IconVisible#0:0": true,
       "Label#0:1": "Buy now"
     },
-    swapComponentId: "1:9"
+    swapComponentId: "1:9",
+    returnNodeDetails: false
   });
 
   assert.equal(parsed.variantProperties.Size, "Large");
   assert.equal(parsed.componentProperties["IconVisible#0:0"], true);
   assert.equal(parsed.swapComponentId, "1:9");
+  assert.equal(parsed.returnNodeDetails, false);
 });
 
 test("set image fill payload accepts URL-backed image fills", () => {
@@ -229,16 +268,19 @@ test("set image fill payload accepts URL-backed image fills", () => {
       type: "IMAGE",
       src: "https://example.com/image.png",
       scaleMode: "FILL"
-    }
+    },
+    returnNodeDetails: false
   });
 
   assert.equal(parsed.image.type, "IMAGE");
   assert.equal(parsed.image.scaleMode, "FILL");
+  assert.equal(parsed.returnNodeDetails, false);
 });
 
 test("set reactions payload accepts node navigation and variable actions", () => {
   const parsed = setReactionsPayloadSchema.parse({
     nodeId: "1:2",
+    returnNodeDetails: false,
     reactions: [
       {
         trigger: { type: "ON_CLICK" },
@@ -269,6 +311,7 @@ test("set reactions payload accepts node navigation and variable actions", () =>
 
   assert.equal(parsed.reactions[0].actions[0].type, "NODE");
   assert.equal(parsed.reactions[0].actions[1].type, "SET_VARIABLE");
+  assert.equal(parsed.returnNodeDetails, false);
 });
 
 test("set reactions payload rejects a reaction without actions", () => {
@@ -358,6 +401,7 @@ test("bind variable payload requires paintIndex for paint bindings", () => {
 test("batch edit schema accepts extended write operations", () => {
   const parsed = batchEditPayloadSchema.parse({
     dryRun: true,
+    compactResults: true,
     ops: [
       { op: "create_frame", name: "Card", width: 320, height: 180 },
       { op: "create_rectangle", name: "Border", width: 320, height: 180, cornerRadius: 16 },
@@ -378,26 +422,30 @@ test("batch edit schema accepts extended write operations", () => {
   });
 
   assert.equal(parsed.ops.length, 5);
+  assert.equal(parsed.compactResults, true);
 });
 
 test("batch edit v2 schema accepts op references and richer operations", () => {
   const parsed = batchEditV2PayloadSchema.parse({
     dryRun: true,
+    compactResults: true,
     ops: [
-      { opId: "hero", op: "create_frame", name: "Hero", width: 1200, height: 640 },
+      { opId: "hero", op: "create_frame", name: "Hero", width: 1200, height: 640, returnNodeDetails: false },
       { opId: "headline", op: "create_text", parentId: { fromOp: "hero" }, text: "Launch faster" },
       {
         op: "set_instance_properties",
         nodeId: { fromOp: "hero", field: "createdNodeId" },
         componentProperties: {
           "Label#0:1": "CTA"
-        }
+        },
+        returnNodeDetails: false
       }
     ]
   });
 
   assert.equal(parsed.ops.length, 3);
   assert.equal(parsed.ops[1].parentId.fromOp, "hero");
+  assert.equal(parsed.compactResults, true);
 });
 
 test("batch edit v2 schema rejects forward references", () => {
@@ -418,11 +466,25 @@ test("normalize names payload requires confirm when dryRun=false", () => {
 });
 
 test("create spec page payload accepts optional source node", () => {
-  const parsed = createSpecPagePayloadSchema.parse({ name: "Specs", sourceNodeId: "1:2" });
+  const parsed = createSpecPagePayloadSchema.parse({
+    name: "Specs",
+    sourceNodeId: "1:2",
+    includeTokenPayload: false,
+    includeVariableValues: false,
+    includeSourceNodeDetails: false
+  });
   assert.equal(parsed.sourceNodeId, "1:2");
+  assert.equal(parsed.includeTokenPayload, false);
+  assert.equal(parsed.includeVariableValues, false);
+  assert.equal(parsed.includeSourceNodeDetails, false);
 });
 
 test("extract design tokens payload accepts collection filter", () => {
-  const parsed = extractDesignTokensPayloadSchema.parse({ collectionId: "VariableCollectionId:1:2", includeStyles: false });
+  const parsed = extractDesignTokensPayloadSchema.parse({
+    collectionId: "VariableCollectionId:1:2",
+    includeStyles: false,
+    summaryOnly: true
+  });
   assert.equal(parsed.includeStyles, false);
+  assert.equal(parsed.summaryOnly, true);
 });

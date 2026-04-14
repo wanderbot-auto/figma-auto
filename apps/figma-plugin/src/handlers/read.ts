@@ -8,6 +8,7 @@ import type {
   FindNodesResult,
   GetCurrentPageResult,
   GetFileResult,
+  GetNodePayload,
   GetNodeResult,
   GetNodeTreePayload,
   GetNodeTreeResult,
@@ -41,6 +42,13 @@ import {
 } from "./node-helpers.js";
 import { serializePaints } from "./paints.js";
 import { serializePrototypeMetadata } from "./prototype.js";
+
+interface DescribeNodeOptions {
+  includeDesign?: boolean | undefined;
+  includePrototype?: boolean | undefined;
+  includeTextContent?: boolean | undefined;
+  includePaints?: boolean | undefined;
+}
 
 function isMixed(value: unknown): boolean {
   return value === figma.mixed;
@@ -362,9 +370,13 @@ async function collectMatchingNodes(
   payload: FindNodesPayload,
   limit: number,
   matches: FindNodeMatch[],
-  counts: { totalMatches: number },
+  counts: { totalMatches: number; stoppedEarly: boolean },
   depth: number | undefined
 ): Promise<void> {
+  if (counts.stoppedEarly) {
+    return;
+  }
+
   if (isSceneNode(node) && !node.visible && payload.visible !== false && !(payload.includeHidden ?? false)) {
     return;
   }
@@ -377,6 +389,13 @@ async function collectMatchingNodes(
         ...summarizeNode(node),
         matchedBy: reasons
       });
+      if ((payload.stopAtLimit ?? false) && matches.length >= limit) {
+        counts.stoppedEarly = true;
+        return;
+      }
+    } else if (payload.stopAtLimit ?? false) {
+      counts.stoppedEarly = true;
+      return;
     }
   }
 
@@ -387,6 +406,9 @@ async function collectMatchingNodes(
   const nextDepth = depth === undefined ? undefined : depth - 1;
   for (const child of node.children) {
     await collectMatchingNodes(child, payload, limit, matches, counts, nextDepth);
+    if (counts.stoppedEarly) {
+      return;
+    }
   }
 }
 
@@ -416,7 +438,17 @@ export function summarizeNode(node: BaseNode): NodeSummary {
   };
 }
 
-function describeNodeSync(node: BaseNode): NodeDetails {
+function normalizeDescribeNodeOptions(options: DescribeNodeOptions = {}): Required<DescribeNodeOptions> {
+  return {
+    includeDesign: options.includeDesign ?? true,
+    includePrototype: options.includePrototype ?? true,
+    includeTextContent: options.includeTextContent ?? true,
+    includePaints: options.includePaints ?? true
+  };
+}
+
+function describeNodeSync(node: BaseNode, options: DescribeNodeOptions = {}): NodeDetails {
+  const resolvedOptions = normalizeDescribeNodeOptions(options);
   const summary = summarizeNode(node);
   const details: NodeDetails = { ...summary };
 
@@ -445,11 +477,11 @@ function describeNodeSync(node: BaseNode): NodeDetails {
     details.cornerRadius = node.cornerRadius;
   }
 
-  if (hasFills(node)) {
+  if (resolvedOptions.includePaints && hasFills(node)) {
     details.fills = serializePaints(node.fills);
   }
 
-  if (hasStrokes(node)) {
+  if (resolvedOptions.includePaints && hasStrokes(node)) {
     details.strokes = serializePaints(node.strokes);
     if (typeof node.strokeWeight === "number") {
       details.strokeWeight = node.strokeWeight;
@@ -479,7 +511,9 @@ function describeNodeSync(node: BaseNode): NodeDetails {
   }
 
   if (isTextNode(node)) {
-    details.characters = node.characters;
+    if (resolvedOptions.includeTextContent) {
+      details.characters = node.characters;
+    }
     if (typeof node.fontSize === "number") {
       details.fontSize = node.fontSize;
     }
@@ -504,33 +538,52 @@ function describeNodeSync(node: BaseNode): NodeDetails {
   return details;
 }
 
-export async function describeNodeAsync(node: BaseNode): Promise<NodeDetails> {
-  const details = describeNodeSync(node);
-  const styles = collectStyleRefs(node);
-  const rawBoundVariables = (node as BaseNode & { boundVariables?: unknown }).boundVariables;
-  const boundVariables = serializeBoundVariables(rawBoundVariables);
-  const instance = await collectInstanceMetadata(node);
-  const prototype = serializePrototypeMetadata(node);
+export async function describeNodeAsync(
+  node: BaseNode,
+  options: DescribeNodeOptions = {}
+): Promise<NodeDetails> {
+  const resolvedOptions = normalizeDescribeNodeOptions(options);
+  const details = describeNodeSync(node, resolvedOptions);
 
-  if (styles || boundVariables || instance) {
-    details.design = {
-      ...(styles ? { styles } : {}),
-      ...(boundVariables ? { boundVariables } : {}),
-      ...(instance ? { instance } : {})
-    };
+  if (resolvedOptions.includeDesign) {
+    const styles = collectStyleRefs(node);
+    const rawBoundVariables = (node as BaseNode & { boundVariables?: unknown }).boundVariables;
+    const boundVariables = serializeBoundVariables(rawBoundVariables);
+    const instance = await collectInstanceMetadata(node);
+
+    if (styles || boundVariables || instance) {
+      details.design = {
+        ...(styles ? { styles } : {}),
+        ...(boundVariables ? { boundVariables } : {}),
+        ...(instance ? { instance } : {})
+      };
+    }
   }
-  if (prototype) {
-    details.prototype = prototype;
+
+  if (resolvedOptions.includePrototype) {
+    const prototype = serializePrototypeMetadata(node);
+    if (prototype) {
+      details.prototype = prototype;
+    }
   }
 
   return details;
 }
 
-async function buildNodeTree(node: BaseNode, depth: number | undefined): Promise<NodeTreeNode> {
-  const snapshot: NodeTreeNode = { ...(await describeNodeAsync(node)) };
+async function buildNodeTree(
+  node: BaseNode,
+  depth: number | undefined,
+  options: DescribeNodeOptions,
+  summaryOnly: boolean
+): Promise<NodeTreeNode> {
+  const snapshot: NodeTreeNode = summaryOnly
+    ? { ...summarizeNode(node) }
+    : { ...(await describeNodeAsync(node, options)) };
   if (hasChildren(node) && depth !== 0) {
     const nextDepth = depth === undefined ? undefined : depth - 1;
-    snapshot.children = await Promise.all(node.children.map((child) => buildNodeTree(child, nextDepth)));
+    snapshot.children = await Promise.all(
+      node.children.map((child) => buildNodeTree(child, nextDepth, options, summaryOnly))
+    );
   }
 
   return snapshot;
@@ -574,16 +627,16 @@ export function listPages(): ListPagesResult {
   };
 }
 
-export async function getNode(nodeId: string): Promise<GetNodeResult> {
+export async function getNode(payload: GetNodePayload): Promise<GetNodeResult> {
   return {
-    node: await describeNodeAsync(await requireBaseNode(nodeId))
+    node: await describeNodeAsync(await requireBaseNode(payload.nodeId), payload)
   };
 }
 
 export async function getNodeTree(payload: GetNodeTreePayload): Promise<GetNodeTreeResult> {
   const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
   return {
-    root: await buildNodeTree(root, payload.depth),
+    root: await buildNodeTree(root, payload.depth, payload, payload.summaryOnly ?? false),
     requestedDepth: payload.depth
   };
 }
@@ -592,7 +645,7 @@ export async function findNodes(payload: FindNodesPayload): Promise<FindNodesRes
   const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
   const limit = payload.limit ?? 50;
   const matches: FindNodeMatch[] = [];
-  const counts = { totalMatches: 0 };
+  const counts = { totalMatches: 0, stoppedEarly: false };
 
   await collectMatchingNodes(root, payload, limit, matches, counts, payload.depth);
 
@@ -600,6 +653,7 @@ export async function findNodes(payload: FindNodesPayload): Promise<FindNodesRes
     root: summarizeNode(root),
     matches,
     totalMatches: counts.totalMatches,
-    truncated: counts.totalMatches > matches.length
+    totalMatchesExact: !counts.stoppedEarly,
+    truncated: counts.stoppedEarly || counts.totalMatches > matches.length
   };
 }

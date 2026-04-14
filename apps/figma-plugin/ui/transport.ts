@@ -8,13 +8,17 @@ import {
 
 import type { PluginRuntimeContext } from "./types.js";
 
+declare const __FIGMA_AUTO_BRIDGE_NAME__: string;
 declare const __FIGMA_AUTO_BRIDGE_PORT__: number;
+declare const __FIGMA_AUTO_BRIDGE_HTTP_URL__: string;
 declare const __FIGMA_AUTO_BRIDGE_WS_URL__: string;
 declare const __FIGMA_AUTO_PROTOCOL_VERSION__: string;
 
 export type BridgeConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
+const BRIDGE_NAME = __FIGMA_AUTO_BRIDGE_NAME__;
 const BRIDGE_PORT = __FIGMA_AUTO_BRIDGE_PORT__;
+const BRIDGE_HTTP_URL = __FIGMA_AUTO_BRIDGE_HTTP_URL__;
 const BRIDGE_WS_URL = __FIGMA_AUTO_BRIDGE_WS_URL__;
 const PROTOCOL_VERSION = __FIGMA_AUTO_PROTOCOL_VERSION__;
 
@@ -49,7 +53,7 @@ export class BridgeTransport {
 
   reconnect(): void {
     this.sessionId = createSessionId();
-    this.emitStatus("connecting", `Reconnecting to ${BRIDGE_WS_URL}`);
+    this.emitStatus("connecting", `Reconnecting to bridge ${BRIDGE_NAME} on port ${BRIDGE_PORT}`);
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -78,7 +82,7 @@ export class BridgeTransport {
       return;
     }
 
-    this.emitStatus("connecting", `Connecting to ${BRIDGE_WS_URL}`);
+    this.emitStatus("connecting", `Connecting to bridge ${BRIDGE_NAME} on port ${BRIDGE_PORT}`);
     const socket = new WebSocket(BRIDGE_WS_URL);
     this.socket = socket;
 
@@ -90,7 +94,7 @@ export class BridgeTransport {
         window.clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
       }
-      this.emitStatus("connected", "Connected to local bridge");
+      this.emitStatus("connected", `Connected to bridge ${BRIDGE_NAME} on port ${BRIDGE_PORT}`);
       this.registerSession();
     });
 
@@ -118,7 +122,7 @@ export class BridgeTransport {
         this.emitStatus("disconnected", "This plugin instance was replaced by another active session. Use Reconnect to take over.");
         return;
       }
-      this.emitStatus("disconnected", "Disconnected from local bridge. Retrying in 2 seconds.");
+      this.emitStatus("disconnected", `Disconnected from bridge ${BRIDGE_NAME}. Retrying in 2 seconds.`);
       this.scheduleReconnect();
     });
 
@@ -126,7 +130,7 @@ export class BridgeTransport {
       if (this.socket !== socket) {
         return;
       }
-      this.emitStatus("error", "Bridge connection error");
+      this.emitStatus("error", `Bridge connection error for ${BRIDGE_NAME} (${BRIDGE_HTTP_URL})`);
     });
   }
 

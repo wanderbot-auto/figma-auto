@@ -400,6 +400,8 @@ export interface NodeTreeNode extends NodeDetails {
   children?: NodeTreeNode[] | undefined;
 }
 
+export type NodeSnapshot = NodeSummary | NodeDetails;
+
 export interface PageSummary {
   id: string;
   name: string;
@@ -481,6 +483,10 @@ export interface ListPagesResult {
 
 export interface GetNodePayload {
   nodeId: string;
+  includeDesign?: boolean | undefined;
+  includePrototype?: boolean | undefined;
+  includeTextContent?: boolean | undefined;
+  includePaints?: boolean | undefined;
 }
 
 export interface GetNodeResult {
@@ -490,6 +496,10 @@ export interface GetNodeResult {
 export interface GetNodeTreePayload {
   nodeId?: string | undefined;
   depth?: number | undefined;
+  summaryOnly?: boolean | undefined;
+  includeDesign?: boolean | undefined;
+  includePrototype?: boolean | undefined;
+  includeTextContent?: boolean | undefined;
 }
 
 export interface GetNodeTreeResult {
@@ -512,6 +522,7 @@ export interface FindNodesPayload {
   componentId?: string | undefined;
   instanceOnly?: boolean | undefined;
   limit?: number | undefined;
+  stopAtLimit?: boolean | undefined;
 }
 
 export interface FindNodeMatch extends NodeSummary {
@@ -522,6 +533,7 @@ export interface FindNodesResult {
   root: NodeSummary;
   matches: FindNodeMatch[];
   totalMatches: number;
+  totalMatchesExact: boolean;
   truncated: boolean;
 }
 
@@ -706,10 +718,11 @@ export interface CreateFramePayload {
   y?: number | undefined;
   width?: number | undefined;
   height?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface CreateFrameResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
 }
 
 export interface CreateRectanglePayload {
@@ -720,10 +733,11 @@ export interface CreateRectanglePayload {
   width?: number | undefined;
   height?: number | undefined;
   cornerRadius?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface CreateRectangleResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
 }
 
 export interface CreateComponentPayload {
@@ -734,10 +748,11 @@ export interface CreateComponentPayload {
   y?: number | undefined;
   width?: number | undefined;
   height?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface CreateComponentResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   sourceNodeId?: string | undefined;
 }
 
@@ -750,10 +765,11 @@ export interface CreateInstancePayload {
   width?: number | undefined;
   height?: number | undefined;
   index?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface CreateInstanceResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   sourceComponentId: string;
 }
 
@@ -763,10 +779,11 @@ export interface CreateTextPayload {
   text?: string | undefined;
   x?: number | undefined;
   y?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface CreateTextResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   text: string;
 }
 
@@ -777,10 +794,11 @@ export interface DuplicateNodePayload {
   x?: number | undefined;
   y?: number | undefined;
   index?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface DuplicateNodeResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   sourceNodeId: string;
 }
 
@@ -800,10 +818,11 @@ export interface SetInstancePropertiesPayload {
   componentProperties?: Record<string, ComponentPropertyOverrideValue> | undefined;
   swapComponentId?: string | undefined;
   preserveOverrides?: boolean | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface SetInstancePropertiesResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   updatedFields: string[];
   sourceComponentId: string | null;
 }
@@ -813,10 +832,11 @@ export interface SetImageFillPayload {
   image: SerializableImagePaint;
   paintIndex?: number | undefined;
   preserveOtherFills?: boolean | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface SetImageFillResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   imageHash: string;
   paintIndex: number;
   updatedFields: string[];
@@ -825,10 +845,11 @@ export interface SetImageFillResult {
 export interface SetReactionsPayload {
   nodeId: string;
   reactions: PrototypeReaction[];
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface SetReactionsResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   reactionCount: number;
 }
 
@@ -841,10 +862,11 @@ export interface ApplyStylesPayload {
     textStyleId?: string | null | undefined;
     gridStyleId?: string | null | undefined;
   };
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface ApplyStylesResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   appliedFields: string[];
 }
 
@@ -899,10 +921,11 @@ export interface NodePropertiesPatch {
 export interface UpdateNodePropertiesPayload {
   nodeId: string;
   properties: NodePropertiesPatch;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface UpdateNodePropertiesResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   updatedFields: string[];
 }
 
@@ -910,10 +933,11 @@ export interface MoveNodePayload {
   nodeId: string;
   parentId: string;
   index?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface MoveNodeResult {
-  node: NodeDetails;
+  node: NodeSnapshot;
   parentId: string;
   index: number;
 }
@@ -1005,6 +1029,9 @@ export interface CreateSpecPagePayload {
   includeVariables?: boolean | undefined;
   includeTokens?: boolean | undefined;
   includeSelection?: boolean | undefined;
+  includeTokenPayload?: boolean | undefined;
+  includeVariableValues?: boolean | undefined;
+  includeSourceNodeDetails?: boolean | undefined;
 }
 
 export interface CreateSpecPageResult {
@@ -1025,6 +1052,13 @@ export interface ExtractDesignTokensPayload {
   collectionId?: string | undefined;
   includeVariables?: boolean | undefined;
   includeStyles?: boolean | undefined;
+  summaryOnly?: boolean | undefined;
+}
+
+export interface TokenExtractionCounts {
+  collectionCount: number;
+  variableCount: number;
+  styleCount: number;
 }
 
 export interface ExtractDesignTokensResult {
@@ -1032,6 +1066,7 @@ export interface ExtractDesignTokensResult {
   collections: VariableCollectionSummary[];
   variables: VariableSummary[];
   styles: StyleTokenSummary[];
+  counts: TokenExtractionCounts;
 }
 
 export interface BatchRenameNodeOperation {
@@ -1114,6 +1149,7 @@ export type BatchResolvableId = string | BatchValueReference;
 export interface BatchEditPayload {
   dryRun?: boolean | undefined;
   confirm?: boolean | undefined;
+  compactResults?: boolean | undefined;
   ops: BatchOperation[];
 }
 
@@ -1167,6 +1203,7 @@ export interface BatchV2CreateFrameOperation extends BatchEditV2OperationBase {
   y?: number | undefined;
   width?: number | undefined;
   height?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2CreateRectangleOperation extends BatchEditV2OperationBase {
@@ -1178,6 +1215,7 @@ export interface BatchV2CreateRectangleOperation extends BatchEditV2OperationBas
   width?: number | undefined;
   height?: number | undefined;
   cornerRadius?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2CreateInstanceOperation extends BatchEditV2OperationBase {
@@ -1190,6 +1228,7 @@ export interface BatchV2CreateInstanceOperation extends BatchEditV2OperationBase
   width?: number | undefined;
   height?: number | undefined;
   index?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2CreateTextOperation extends BatchEditV2OperationBase {
@@ -1199,6 +1238,7 @@ export interface BatchV2CreateTextOperation extends BatchEditV2OperationBase {
   text?: string | undefined;
   x?: number | undefined;
   y?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2DuplicateNodeOperation extends BatchEditV2OperationBase {
@@ -1209,6 +1249,7 @@ export interface BatchV2DuplicateNodeOperation extends BatchEditV2OperationBase 
   x?: number | undefined;
   y?: number | undefined;
   index?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2SetTextOperation extends BatchEditV2OperationBase {
@@ -1224,6 +1265,7 @@ export interface BatchV2SetInstancePropertiesOperation extends BatchEditV2Operat
   componentProperties?: Record<string, ComponentPropertyOverrideValue> | undefined;
   swapComponentId?: BatchResolvableId | undefined;
   preserveOverrides?: boolean | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2SetImageFillOperation extends BatchEditV2OperationBase {
@@ -1232,12 +1274,14 @@ export interface BatchV2SetImageFillOperation extends BatchEditV2OperationBase {
   image: SerializableImagePaint;
   paintIndex?: number | undefined;
   preserveOtherFills?: boolean | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2UpdateNodePropertiesOperation extends BatchEditV2OperationBase {
   op: "update_node_properties";
   nodeId: BatchResolvableId;
   properties: NodePropertiesPatch;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2MoveNodeOperation extends BatchEditV2OperationBase {
@@ -1245,6 +1289,7 @@ export interface BatchV2MoveNodeOperation extends BatchEditV2OperationBase {
   nodeId: BatchResolvableId;
   parentId: BatchResolvableId;
   index?: number | undefined;
+  returnNodeDetails?: boolean | undefined;
 }
 
 export interface BatchV2DeleteNodeOperation extends BatchEditV2OperationBase {
@@ -1280,6 +1325,7 @@ export type BatchEditV2Operation =
 export interface BatchEditV2Payload {
   dryRun?: boolean | undefined;
   confirm?: boolean | undefined;
+  compactResults?: boolean | undefined;
   ops: BatchEditV2Operation[];
 }
 

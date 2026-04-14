@@ -116,6 +116,10 @@ function placeNodeAtIndex(node: SceneNode, parent: ChildContainerNode, index?: n
   parent.insertChild(insertIndex, node);
 }
 
+async function describeWriteResultNode(node: BaseNode, returnNodeDetails?: boolean) {
+  return returnNodeDetails ?? true ? describeNodeAsync(node) : summarizeNode(node);
+}
+
 export async function renameNode(payload: RenameNodePayload): Promise<RenameNodeResult> {
   const node = await requireSceneNode(payload.nodeId);
   node.name = payload.name;
@@ -145,7 +149,7 @@ export async function createFrame(payload: CreateFramePayload): Promise<CreateFr
   placeNode(frame, parent, payload.x, payload.y);
 
   return {
-    node: await describeNodeAsync(frame)
+    node: await describeWriteResultNode(frame, payload.returnNodeDetails)
   };
 }
 
@@ -161,7 +165,7 @@ export async function createRectangle(payload: CreateRectanglePayload): Promise<
   placeNode(rectangle, parent, payload.x, payload.y);
 
   return {
-    node: await describeNodeAsync(rectangle)
+    node: await describeWriteResultNode(rectangle, payload.returnNodeDetails)
   };
 }
 
@@ -171,7 +175,7 @@ export async function createComponent(payload: CreateComponentPayload): Promise<
     const component = figma.createComponentFromNode(sourceNode);
     component.name = payload.name ?? component.name;
     return {
-      node: await describeNodeAsync(component),
+      node: await describeWriteResultNode(component, payload.returnNodeDetails),
       sourceNodeId: payload.nodeId
     };
   }
@@ -184,7 +188,7 @@ export async function createComponent(payload: CreateComponentPayload): Promise<
   placeNode(component, parent, payload.x, payload.y);
 
   return {
-    node: await describeNodeAsync(component)
+    node: await describeWriteResultNode(component, payload.returnNodeDetails)
   };
 }
 
@@ -206,7 +210,7 @@ export async function createInstance(payload: CreateInstancePayload): Promise<Cr
   }
 
   return {
-    node: await describeNodeAsync(instance),
+    node: await describeWriteResultNode(instance, payload.returnNodeDetails),
     sourceComponentId: component.id
   };
 }
@@ -221,7 +225,7 @@ export async function createText(payload: CreateTextPayload): Promise<CreateText
   placeNode(node, parent, payload.x, payload.y);
 
   return {
-    node: await describeNodeAsync(node),
+    node: await describeWriteResultNode(node, payload.returnNodeDetails),
     text: node.characters
   };
 }
@@ -247,7 +251,7 @@ export async function duplicateNode(payload: DuplicateNodePayload): Promise<Dupl
   }
 
   return {
-    node: await describeNodeAsync(duplicate),
+    node: await describeWriteResultNode(duplicate, payload.returnNodeDetails),
     sourceNodeId: sourceNode.id
   };
 }
@@ -273,7 +277,7 @@ export async function setReactions(payload: SetReactionsPayload): Promise<SetRea
   await node.setReactionsAsync(reactions);
 
   return {
-    node: await describeNodeAsync(node),
+    node: await describeWriteResultNode(node, payload.returnNodeDetails),
     reactionCount: node.reactions.length
   };
 }
@@ -293,7 +297,7 @@ export async function moveNode(payload: MoveNodePayload): Promise<MoveNodeResult
   parent.insertChild(insertIndex, node);
 
   return {
-    node: await describeNodeAsync(node),
+    node: await describeWriteResultNode(node, payload.returnNodeDetails),
     parentId: parent.id,
     index: parent.children.indexOf(node)
   };

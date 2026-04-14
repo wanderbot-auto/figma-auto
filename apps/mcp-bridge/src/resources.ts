@@ -111,7 +111,10 @@ export function registerBridgeResources({
     "figma-components",
     "figma://components",
     "Read-only list of local components in the active Figma file.",
-    "figma.get_components"
+    "figma.get_components",
+    {
+      includeProperties: false
+    }
   );
   registerStaticToolResource(
     mcpServer,
@@ -119,7 +122,10 @@ export function registerBridgeResources({
     "figma-variables",
     "figma://variables",
     "Read-only list of local variables in the active Figma file.",
-    "figma.get_variables"
+    "figma.get_variables",
+    {
+      includeValues: false
+    }
   );
 
   mcpServer.registerResource(

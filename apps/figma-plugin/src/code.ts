@@ -237,7 +237,7 @@ async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelop
       case "figma.list_pages":
         return success(request.requestId, listPages());
       case "figma.get_node":
-        return success(request.requestId, await getNode(getNodePayloadSchema.parse(request.payload).nodeId));
+        return success(request.requestId, await getNode(getNodePayloadSchema.parse(request.payload)));
       case "figma.get_node_tree":
         return success(request.requestId, await getNodeTree(getNodeTreePayloadSchema.parse(request.payload)));
       case "figma.find_nodes":

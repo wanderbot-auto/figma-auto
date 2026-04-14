@@ -91,12 +91,22 @@ function resolvePluginName(baseName) {
   return instanceName ? `${baseName} (${instanceName})` : baseName;
 }
 
+function resolveBridgeName() {
+  const explicitName = process.env.FIGMA_AUTO_BRIDGE_NAME?.trim();
+  if (explicitName) {
+    return explicitName;
+  }
+
+  return instanceName || "default";
+}
+
 await fs.mkdir(distDir, { recursive: true });
 
 const { defaultBridgePort, protocolVersion } = await readProtocolConstants();
 const bridgePort = resolveConfiguredBridgePort(defaultBridgePort);
 const bridgeWsUrl = canonicalizeLocalUrl(resolveBridgeWsUrl(bridgePort));
-const bridgeHttpUrl = resolveBridgeHttpUrl(bridgeWsUrl);
+const bridgeHttpUrl = canonicalizeLocalUrl(resolveBridgeHttpUrl(bridgeWsUrl));
+const bridgeName = resolveBridgeName();
 const manifestTemplate = JSON.parse(await fs.readFile(manifestTemplatePath, "utf8"));
 const allowedDomains = [bridgeHttpUrl, bridgeWsUrl];
 const manifest = {
@@ -128,7 +138,9 @@ await esbuild.build({
   platform: "browser",
   target: ["es2017"],
   define: {
+    __FIGMA_AUTO_BRIDGE_NAME__: JSON.stringify(bridgeName),
     __FIGMA_AUTO_BRIDGE_PORT__: `${bridgePort}`,
+    __FIGMA_AUTO_BRIDGE_HTTP_URL__: JSON.stringify(bridgeHttpUrl),
     __FIGMA_AUTO_BRIDGE_WS_URL__: JSON.stringify(bridgeWsUrl),
     __FIGMA_AUTO_PROTOCOL_VERSION__: JSON.stringify(protocolVersion)
   }

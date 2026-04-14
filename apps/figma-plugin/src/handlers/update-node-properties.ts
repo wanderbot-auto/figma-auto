@@ -17,7 +17,7 @@ import {
   isResizableNode,
   requireSceneNode
 } from "./node-helpers.js";
-import { describeNodeAsync } from "./read.js";
+import { describeNodeAsync, summarizeNode } from "./read.js";
 import { toFigmaPaints } from "./paints.js";
 import { loadFontAsyncOrThrow, loadFontsForNode } from "./write.js";
 
@@ -291,7 +291,7 @@ export async function updateNodeProperties(
   }
 
   return {
-    node: await describeNodeAsync(node),
+    node: payload.returnNodeDetails ?? true ? await describeNodeAsync(node) : summarizeNode(node),
     updatedFields
   };
 }

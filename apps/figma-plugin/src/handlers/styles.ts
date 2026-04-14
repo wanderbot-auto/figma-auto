@@ -15,7 +15,7 @@ import {
   isTextNode,
   requireSceneNode
 } from "./node-helpers.js";
-import { describeNodeAsync } from "./read.js";
+import { describeNodeAsync, summarizeNode } from "./read.js";
 import { loadFontsForNode } from "./write.js";
 
 async function requireStyle(styleId: string, expectedType: StyleType) {
@@ -161,7 +161,7 @@ export async function applyStyles(payload: ApplyStylesPayload): Promise<ApplySty
   }
 
   return {
-    node: await describeNodeAsync(node),
+    node: payload.returnNodeDetails ?? true ? await describeNodeAsync(node) : summarizeNode(node),
     appliedFields
   };
 }

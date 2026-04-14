@@ -55,6 +55,26 @@ interface BatchContext {
   syntheticKinds: Map<string, SyntheticNodeKind>;
 }
 
+function compactBatchItemResult(result: BatchEditItemResult): BatchEditItemResult {
+  if (!result.ok) {
+    return result;
+  }
+
+  const compact: BatchEditItemResult = {
+    index: result.index,
+    op: result.op,
+    ok: result.ok,
+    wouldChange: result.wouldChange,
+    ...(result.opId !== undefined ? { opId: result.opId } : {}),
+    ...(result.createdNodeId !== undefined ? { createdNodeId: result.createdNodeId } : {}),
+    ...(result.deletedNodeId !== undefined ? { deletedNodeId: result.deletedNodeId } : {}),
+    ...(result.targetSummary !== undefined ? { targetSummary: result.targetSummary } : {}),
+    ...(result.updatedNodeId !== undefined ? { updatedNodeId: result.updatedNodeId } : {})
+  };
+
+  return compact;
+}
+
 function isReference(value: BatchResolvableId): value is BatchValueReference {
   return typeof value === "object" && value !== null && "fromOp" in value;
 }
@@ -566,7 +586,8 @@ async function runOperation(
   operation: BatchEditV2Operation,
   index: number,
   context: BatchContext,
-  batchConfirmed: boolean
+  batchConfirmed: boolean,
+  compactResults: boolean
 ): Promise<BatchEditItemResult> {
   const base = {
     index,
@@ -608,7 +629,8 @@ async function runOperation(
         x: operation.x,
         y: operation.y,
         width: operation.width,
-        height: operation.height
+        height: operation.height,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies CreateFramePayload);
       return {
         ...base,
@@ -626,7 +648,8 @@ async function runOperation(
         y: operation.y,
         width: operation.width,
         height: operation.height,
-        cornerRadius: operation.cornerRadius
+        cornerRadius: operation.cornerRadius,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies CreateRectanglePayload);
       return {
         ...base,
@@ -645,7 +668,8 @@ async function runOperation(
         y: operation.y,
         width: operation.width,
         height: operation.height,
-        index: operation.index
+        index: operation.index,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies CreateInstancePayload);
       return {
         ...base,
@@ -661,7 +685,8 @@ async function runOperation(
         name: operation.name,
         text: operation.text,
         x: operation.x,
-        y: operation.y
+        y: operation.y,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies CreateTextPayload);
       return {
         ...base,
@@ -678,7 +703,8 @@ async function runOperation(
         name: operation.name,
         x: operation.x,
         y: operation.y,
-        index: operation.index
+        index: operation.index,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies DuplicateNodePayload);
       return {
         ...base,
@@ -707,7 +733,8 @@ async function runOperation(
         variantProperties: operation.variantProperties,
         componentProperties: operation.componentProperties,
         swapComponentId: resolveOptionalId(operation.swapComponentId, context, "swapComponentId"),
-        preserveOverrides: operation.preserveOverrides
+        preserveOverrides: operation.preserveOverrides,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies SetInstancePropertiesPayload);
       return {
         ...base,
@@ -722,7 +749,8 @@ async function runOperation(
         nodeId: resolveId(operation.nodeId, context, "nodeId"),
         image: operation.image,
         paintIndex: operation.paintIndex,
-        preserveOtherFills: operation.preserveOtherFills
+        preserveOtherFills: operation.preserveOtherFills,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies SetImageFillPayload);
       return {
         ...base,
@@ -735,7 +763,8 @@ async function runOperation(
     case "update_node_properties": {
       const result = await updateNodeProperties({
         nodeId: resolveId(operation.nodeId, context, "nodeId"),
-        properties: operation.properties
+        properties: operation.properties,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies UpdateNodePropertiesPayload);
       return {
         ...base,
@@ -749,7 +778,8 @@ async function runOperation(
       const result = await moveNode({
         nodeId: resolveId(operation.nodeId, context, "nodeId"),
         parentId: resolveId(operation.parentId, context, "parentId"),
-        index: operation.index
+        index: operation.index,
+        returnNodeDetails: operation.returnNodeDetails ?? !compactResults
       } satisfies MoveNodePayload);
       return {
         ...base,
@@ -793,6 +823,7 @@ async function runOperation(
 
 export async function batchEditV2(payload: BatchEditV2Payload): Promise<BatchEditV2Result> {
   const dryRun = payload.dryRun ?? true;
+  const compactResults = payload.compactResults ?? false;
   if (!dryRun && payload.confirm !== true) {
     throw new Error("Committed batch_edit_v2 requires confirm=true");
   }
@@ -809,10 +840,11 @@ export async function batchEditV2(payload: BatchEditV2Payload): Promise<BatchEdi
     try {
       const result = dryRun
         ? await dryRunOperation(operation, index, context)
-        : { result: await runOperation(operation, index, context, payload.confirm === true) };
-      results.push(result.result);
-      registerResult(context, operation, result.result);
-      registerSyntheticKind(context, result.result, result.kind);
+        : { result: await runOperation(operation, index, context, payload.confirm === true, compactResults) };
+      const finalResult = compactResults ? compactBatchItemResult(result.result) : result.result;
+      results.push(finalResult);
+      registerResult(context, operation, finalResult);
+      registerSyntheticKind(context, finalResult, result.kind);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown batch operation error";
       const failure: BatchEditItemResult = {

@@ -2,7 +2,7 @@ import type { SetImageFillPayload, SetImageFillResult } from "@figma-auto/protoc
 
 import { requireFillableNode } from "./node-helpers.js";
 import { toFigmaPaint } from "./paints.js";
-import { describeNodeAsync } from "./read.js";
+import { describeNodeAsync, summarizeNode } from "./read.js";
 
 export async function setImageFill(payload: SetImageFillPayload): Promise<SetImageFillResult> {
   const node = await requireFillableNode(payload.nodeId);
@@ -33,7 +33,7 @@ export async function setImageFill(payload: SetImageFillPayload): Promise<SetIma
   }
 
   return {
-    node: await describeNodeAsync(node),
+    node: payload.returnNodeDetails ?? true ? await describeNodeAsync(node) : summarizeNode(node),
     imageHash: imagePaint.imageHash,
     paintIndex,
     updatedFields: [payload.preserveOtherFills ? `fills.${paintIndex}` : "fills"]

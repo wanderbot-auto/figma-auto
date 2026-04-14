@@ -3,7 +3,13 @@ import type { RequestEnvelope, ResponseEnvelope, ToolName } from "@figma-auto/pr
 import type { PluginRuntimeContext, PluginToUiMessage } from "./types.js";
 import { BridgeTransport, type BridgeConnectionState } from "./transport.js";
 
+declare const __FIGMA_AUTO_BRIDGE_NAME__: string;
+declare const __FIGMA_AUTO_BRIDGE_PORT__: number;
+declare const __FIGMA_AUTO_BRIDGE_HTTP_URL__: string;
+declare const __FIGMA_AUTO_BRIDGE_WS_URL__: string;
+
 const bridgeBadgeElement = document.getElementById("bridge-badge");
+const bridgeGridElement = document.getElementById("bridge-grid");
 const statusMessageElement = document.getElementById("status-message");
 const reconnectButton = document.getElementById("reconnect");
 const actionsPanelElement = document.getElementById("actions-panel");
@@ -17,6 +23,7 @@ const contextGridElement = document.getElementById("context-grid");
 
 if (
   !bridgeBadgeElement
+  || !bridgeGridElement
   || !statusMessageElement
   || !currentBadgeElement
   || !actionsPanelElement
@@ -32,6 +39,7 @@ if (
 }
 
 const bridgeBadge = bridgeBadgeElement as HTMLElement;
+const bridgeGrid = bridgeGridElement as HTMLElement;
 const statusMessage = statusMessageElement as HTMLElement;
 const actionsPanel = actionsPanelElement as HTMLElement;
 const actionsEmpty = actionsEmptyElement as HTMLElement;
@@ -98,6 +106,13 @@ let runtimeContext: PluginRuntimeContext | null = null;
 let lastCompletedAction: TrackedAction | null = null;
 let readyPingTimer: number | null = null;
 
+const bridgeInfo = {
+  name: __FIGMA_AUTO_BRIDGE_NAME__,
+  port: String(__FIGMA_AUTO_BRIDGE_PORT__),
+  httpUrl: __FIGMA_AUTO_BRIDGE_HTTP_URL__,
+  wsUrl: __FIGMA_AUTO_BRIDGE_WS_URL__
+};
+
 window.addEventListener("error", (event) => {
   bridgeState = "error";
   bridgeMessage = event.error instanceof Error ? event.error.message : String(event.message);
@@ -119,6 +134,7 @@ const transport = new BridgeTransport(
 renderConnection();
 renderCurrentAction();
 renderHistory();
+renderBridgeInfo();
 renderContext();
 
 window.onmessage = (event: MessageEvent<{ pluginMessage?: PluginToUiMessage }>) => {
@@ -371,6 +387,33 @@ function renderConnection(): void {
   statusMessage.textContent = bridgeMessage;
 }
 
+function renderBridgeInfo(): void {
+  bridgeGrid.replaceChildren();
+
+  const entries: Array<[string, string]> = [
+    ["Bridge Name", bridgeInfo.name],
+    ["Port", bridgeInfo.port],
+    ["MCP HTTP", bridgeInfo.httpUrl],
+    ["WebSocket", bridgeInfo.wsUrl]
+  ];
+
+  for (const [label, value] of entries) {
+    const item = document.createElement("div");
+    item.className = "bridge-item";
+
+    const key = document.createElement("div");
+    key.className = "context-label";
+    key.textContent = label;
+
+    const content = document.createElement("div");
+    content.className = "bridge-value mono";
+    content.textContent = value;
+
+    item.append(key, content);
+    bridgeGrid.appendChild(item);
+  }
+}
+
 function renderCurrentAction(): void {
   const activeAction = getLatestPendingAction();
 
@@ -419,6 +462,9 @@ function renderHistory(): void {
     const row = document.createElement("li");
     row.className = "history-item";
 
+    const header = document.createElement("div");
+    header.className = "history-header";
+
     const main = document.createElement("div");
     main.className = "history-main";
 
@@ -428,11 +474,20 @@ function renderHistory(): void {
 
     main.append(title);
 
+    const status = document.createElement("span");
+    status.className = `status-chip ${badgeClassForAction(item.status)}`;
+    status.textContent = statusLabel(item.status);
+
+    const summary = document.createElement("div");
+    summary.className = "history-summary";
+    summary.textContent = item.summary ?? item.detail;
+
     const meta = document.createElement("div");
     meta.className = "history-meta";
-    meta.textContent = `${statusLabel(item.status)} · ${formatTime(item.finishedAt ?? item.startedAt)}`;
+    meta.textContent = formatTime(item.finishedAt ?? item.startedAt);
 
-    row.append(main, meta);
+    header.append(main, status);
+    row.append(header, summary, meta);
     historyList.appendChild(row);
   }
 }

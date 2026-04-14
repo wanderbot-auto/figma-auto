@@ -8,7 +8,7 @@ import {
   requireComponentSource,
   requireInstanceNode
 } from "./node-helpers.js";
-import { describeNodeAsync } from "./read.js";
+import { describeNodeAsync, summarizeNode } from "./read.js";
 
 async function toPropertyValue(
   value: ComponentPropertyOverrideValue
@@ -57,7 +57,7 @@ export async function setInstanceProperties(
   }
 
   return {
-    node: await describeNodeAsync(instance),
+    node: payload.returnNodeDetails ?? true ? await describeNodeAsync(instance) : summarizeNode(instance),
     updatedFields,
     sourceComponentId: (await instance.getMainComponentAsync())?.id ?? null
   };

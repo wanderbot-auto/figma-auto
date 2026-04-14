@@ -110,6 +110,53 @@ function serializeGridStyle(style: GridStyle): StyleTokenSummary {
   };
 }
 
+async function buildDesignTokenSnapshot(
+  payload: ExtractDesignTokensPayload & {
+    includeVariableValues?: boolean;
+  }
+): Promise<ExtractDesignTokensResult> {
+  const includeVariables = payload.includeVariables ?? true;
+  const includeStyles = payload.includeStyles ?? true;
+  const summaryOnly = payload.summaryOnly ?? false;
+  const includeVariableValues = payload.includeVariableValues ?? true;
+  const variableResult = includeVariables
+    ? await getVariables({
+        collectionId: payload.collectionId,
+        includeValues: summaryOnly ? false : includeVariableValues
+      })
+    : { collections: [], variables: [], totalVariables: 0 };
+
+  const styleGroups = includeStyles
+    ? await Promise.all([
+        figma.getLocalPaintStylesAsync(),
+        figma.getLocalTextStylesAsync(),
+        figma.getLocalEffectStylesAsync(),
+        figma.getLocalGridStylesAsync()
+      ])
+    : [[], [], [], []];
+  const styleCount = styleGroups.reduce((total, group) => total + group.length, 0);
+  const styles = summaryOnly || !includeStyles
+    ? []
+    : [
+        ...styleGroups[0].map((style) => serializePaintStyle(style)),
+        ...styleGroups[1].map((style) => serializeTextStyle(style)),
+        ...styleGroups[2].map((style) => serializeEffectStyle(style)),
+        ...styleGroups[3].map((style) => serializeGridStyle(style))
+      ];
+
+  return {
+    summary: `Extracted ${variableResult.totalVariables} variables across ${variableResult.collections.length} collections and ${styleCount} styles`,
+    collections: variableResult.collections,
+    variables: summaryOnly ? [] : variableResult.variables,
+    styles,
+    counts: {
+      collectionCount: variableResult.collections.length,
+      variableCount: variableResult.totalVariables,
+      styleCount
+    }
+  };
+}
+
 export async function normalizeNames(payload: NormalizeNamesPayload): Promise<NormalizeNamesResult> {
   const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
   const dryRun = payload.dryRun ?? true;
@@ -159,30 +206,7 @@ export async function normalizeNames(payload: NormalizeNamesPayload): Promise<No
 }
 
 export async function extractDesignTokens(payload: ExtractDesignTokensPayload): Promise<ExtractDesignTokensResult> {
-  const includeVariables = payload.includeVariables ?? true;
-  const includeStyles = payload.includeStyles ?? true;
-  const variableResult = includeVariables
-    ? await getVariables({
-        collectionId: payload.collectionId,
-        includeValues: true
-      })
-    : { collections: [], variables: [], totalVariables: 0 };
-
-  const styles = includeStyles
-    ? [
-        ...(await figma.getLocalPaintStylesAsync()).map((style) => serializePaintStyle(style)),
-        ...(await figma.getLocalTextStylesAsync()).map((style) => serializeTextStyle(style)),
-        ...(await figma.getLocalEffectStylesAsync()).map((style) => serializeEffectStyle(style)),
-        ...(await figma.getLocalGridStylesAsync()).map((style) => serializeGridStyle(style))
-      ]
-    : [];
-
-  return {
-    summary: `Extracted ${variableResult.variables.length} variables across ${variableResult.collections.length} collections and ${styles.length} styles`,
-    collections: variableResult.collections,
-    variables: variableResult.variables,
-    styles
-  };
+  return buildDesignTokenSnapshot(payload);
 }
 
 export async function createSpecPage(payload: CreateSpecPagePayload): Promise<CreateSpecPageResult> {
@@ -196,8 +220,20 @@ export async function createSpecPage(payload: CreateSpecPagePayload): Promise<Cr
   const includeVariables = payload.includeVariables ?? true;
   const includeSelection = payload.includeSelection ?? true;
   const includeTokens = payload.includeTokens ?? true;
-  const tokenSnapshot = includeTokens ? await extractDesignTokens({ includeVariables, includeStyles: true }) : null;
-  const variableSnapshot = !includeTokens && includeVariables ? await getVariables({ includeValues: true }) : null;
+  const includeTokenPayload = payload.includeTokenPayload ?? true;
+  const includeVariableValues = payload.includeVariableValues ?? true;
+  const includeSourceNodeDetails = payload.includeSourceNodeDetails ?? true;
+  const tokenSnapshot = includeTokens
+    ? await buildDesignTokenSnapshot({
+        includeVariables,
+        includeStyles: true,
+        includeVariableValues,
+        summaryOnly: !includeTokenPayload
+      })
+    : null;
+  const variableSnapshot = !includeTokens && includeVariables
+    ? await getVariables({ includeValues: includeVariableValues })
+    : null;
 
   const specLines = [
     `Spec Page: ${page.name}`,
@@ -205,7 +241,11 @@ export async function createSpecPage(payload: CreateSpecPagePayload): Promise<Cr
     `File: ${figma.root.name}`,
     `Generated At: ${new Date().toISOString()}`,
     `Source Page: ${figma.currentPage.name} (${figma.currentPage.id})`,
-    payload.sourceNodeId && sourceNode ? `Source Node: ${JSON.stringify(await describeNodeAsync(sourceNode))}` : null,
+    payload.sourceNodeId && sourceNode
+      ? `Source Node: ${JSON.stringify(
+          includeSourceNodeDetails ? await describeNodeAsync(sourceNode) : summarizeNode(sourceNode)
+        )}`
+      : null,
     includeSelection
       ? `Selection: ${JSON.stringify(figma.currentPage.selection.map((node) => summarizeNode(node)))}`
       : null,

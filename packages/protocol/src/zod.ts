@@ -373,7 +373,11 @@ export const prototypeReactionSchema: z.ZodType<PrototypeReaction> = z.lazy(() =
 }));
 
 export const getNodePayloadSchema = z.object({
-  nodeId: z.string().min(1)
+  nodeId: z.string().min(1),
+  includeDesign: z.boolean().optional(),
+  includePrototype: z.boolean().optional(),
+  includeTextContent: z.boolean().optional(),
+  includePaints: z.boolean().optional()
 });
 
 export const getFlowPayloadSchema = z.object({
@@ -382,7 +386,11 @@ export const getFlowPayloadSchema = z.object({
 
 export const getNodeTreePayloadSchema = z.object({
   nodeId: z.string().min(1).optional(),
-  depth: z.number().int().min(0).optional()
+  depth: z.number().int().min(0).optional(),
+  summaryOnly: z.boolean().optional(),
+  includeDesign: z.boolean().optional(),
+  includePrototype: z.boolean().optional(),
+  includeTextContent: z.boolean().optional()
 });
 
 export const findNodesPayloadSchema = z.object({
@@ -399,7 +407,8 @@ export const findNodesPayloadSchema = z.object({
   variableId: z.string().min(1).optional(),
   componentId: z.string().min(1).optional(),
   instanceOnly: z.boolean().optional(),
-  limit: z.number().int().min(1).max(MAX_FIND_RESULTS).optional()
+  limit: z.number().int().min(1).max(MAX_FIND_RESULTS).optional(),
+  stopAtLimit: z.boolean().optional()
 }).superRefine((payload, context) => {
   if (
     payload.nameContains
@@ -459,7 +468,8 @@ export const createFramePayloadSchema = z.object({
   x: z.number().finite().optional(),
   y: z.number().finite().optional(),
   width: z.number().positive().optional(),
-  height: z.number().positive().optional()
+  height: z.number().positive().optional(),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const createRectanglePayloadSchema = z.object({
@@ -469,7 +479,8 @@ export const createRectanglePayloadSchema = z.object({
   y: z.number().finite().optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
-  cornerRadius: z.number().min(0).optional()
+  cornerRadius: z.number().min(0).optional(),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const createComponentPayloadSchema = z.object({
@@ -479,7 +490,8 @@ export const createComponentPayloadSchema = z.object({
   x: z.number().finite().optional(),
   y: z.number().finite().optional(),
   width: z.number().positive().optional(),
-  height: z.number().positive().optional()
+  height: z.number().positive().optional(),
+  returnNodeDetails: z.boolean().optional()
 }).superRefine((payload, context) => {
   if (!payload.nodeId) {
     return;
@@ -504,7 +516,8 @@ export const createInstancePayloadSchema = z.object({
   y: z.number().finite().optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
-  index: z.number().int().min(0).optional()
+  index: z.number().int().min(0).optional(),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const createTextPayloadSchema = z.object({
@@ -512,7 +525,8 @@ export const createTextPayloadSchema = z.object({
   name: z.string().trim().min(1).optional(),
   text: z.string().optional(),
   x: z.number().finite().optional(),
-  y: z.number().finite().optional()
+  y: z.number().finite().optional(),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const setTextPayloadSchema = z.object({
@@ -525,7 +539,8 @@ export const setInstancePropertiesPayloadSchema = z.object({
   variantProperties: z.record(z.string().trim().min(1), z.string()).optional(),
   componentProperties: z.record(z.string().trim().min(1), componentPropertyOverrideValueSchema).optional(),
   swapComponentId: z.string().min(1).optional(),
-  preserveOverrides: z.boolean().optional()
+  preserveOverrides: z.boolean().optional(),
+  returnNodeDetails: z.boolean().optional()
 }).superRefine((payload, context) => {
   const hasVariantProperties = payload.variantProperties && Object.keys(payload.variantProperties).length > 0;
   const hasComponentProperties = payload.componentProperties && Object.keys(payload.componentProperties).length > 0;
@@ -544,7 +559,8 @@ export const setImageFillPayloadSchema = z.object({
   nodeId: z.string().min(1),
   image: serializableImagePaintSchema,
   paintIndex: z.number().int().min(0).optional(),
-  preserveOtherFills: z.boolean().optional()
+  preserveOtherFills: z.boolean().optional(),
+  returnNodeDetails: z.boolean().optional()
 }).superRefine((payload, context) => {
   if (payload.preserveOtherFills || payload.paintIndex === undefined || payload.paintIndex === 0) {
     return;
@@ -559,7 +575,8 @@ export const setImageFillPayloadSchema = z.object({
 
 export const setReactionsPayloadSchema = z.object({
   nodeId: z.string().min(1),
-  reactions: z.array(prototypeReactionSchema).max(100)
+  reactions: z.array(prototypeReactionSchema).max(100),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const applyStylesPayloadSchema = z.object({
@@ -572,7 +589,8 @@ export const applyStylesPayloadSchema = z.object({
     gridStyleId: z.string().min(1).nullable().optional()
   }).refine((payload) => Object.keys(payload).length > 0, {
     message: "styles must include at least one style field"
-  })
+  }),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const duplicateNodePayloadSchema = z.object({
@@ -581,7 +599,8 @@ export const duplicateNodePayloadSchema = z.object({
   name: z.string().trim().min(1).optional(),
   x: z.number().finite().optional(),
   y: z.number().finite().optional(),
-  index: z.number().int().min(0).optional()
+  index: z.number().int().min(0).optional(),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const layoutPropertiesPatchSchema = z.object({
@@ -640,13 +659,15 @@ export const nodePropertiesPatchSchema = z.object({
 
 export const updateNodePropertiesPayloadSchema = z.object({
   nodeId: z.string().min(1),
-  properties: nodePropertiesPatchSchema
+  properties: nodePropertiesPatchSchema,
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const moveNodePayloadSchema = z.object({
   nodeId: z.string().min(1),
   parentId: z.string().min(1),
-  index: z.number().int().min(0).optional()
+  index: z.number().int().min(0).optional(),
+  returnNodeDetails: z.boolean().optional()
 });
 
 export const deleteNodePayloadSchema = z.object({
@@ -794,13 +815,17 @@ export const createSpecPagePayloadSchema = z.object({
   sourceNodeId: z.string().min(1).optional(),
   includeVariables: z.boolean().optional(),
   includeTokens: z.boolean().optional(),
-  includeSelection: z.boolean().optional()
+  includeSelection: z.boolean().optional(),
+  includeTokenPayload: z.boolean().optional(),
+  includeVariableValues: z.boolean().optional(),
+  includeSourceNodeDetails: z.boolean().optional()
 });
 
 export const extractDesignTokensPayloadSchema = z.object({
   collectionId: z.string().min(1).optional(),
   includeVariables: z.boolean().optional(),
-  includeStyles: z.boolean().optional()
+  includeStyles: z.boolean().optional(),
+  summaryOnly: z.boolean().optional()
 });
 
 const batchBindVariableOperationSchema = z.object({
@@ -889,6 +914,7 @@ export const batchOperationSchema = z.discriminatedUnion("op", [
 export const batchEditPayloadSchema = z.object({
   dryRun: z.boolean().optional(),
   confirm: z.boolean().optional(),
+  compactResults: z.boolean().optional(),
   ops: z.array(batchOperationSchema).min(1).max(MAX_BATCH_OPS)
 }).superRefine((payload, context) => {
   if ((payload.dryRun ?? true) || payload.confirm === true) {
@@ -919,7 +945,8 @@ export const batchEditV2OperationSchema = z.union([
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
     width: z.number().positive().optional(),
-    height: z.number().positive().optional()
+    height: z.number().positive().optional(),
+    returnNodeDetails: z.boolean().optional()
   }),
   batchV2BaseSchema.extend({
     op: z.literal("create_rectangle"),
@@ -929,7 +956,8 @@ export const batchEditV2OperationSchema = z.union([
     y: z.number().finite().optional(),
     width: z.number().positive().optional(),
     height: z.number().positive().optional(),
-    cornerRadius: z.number().min(0).optional()
+    cornerRadius: z.number().min(0).optional(),
+    returnNodeDetails: z.boolean().optional()
   }),
   batchV2BaseSchema.extend({
     op: z.literal("create_instance"),
@@ -940,7 +968,8 @@ export const batchEditV2OperationSchema = z.union([
     y: z.number().finite().optional(),
     width: z.number().positive().optional(),
     height: z.number().positive().optional(),
-    index: z.number().int().min(0).optional()
+    index: z.number().int().min(0).optional(),
+    returnNodeDetails: z.boolean().optional()
   }),
   batchV2BaseSchema.extend({
     op: z.literal("create_text"),
@@ -948,7 +977,8 @@ export const batchEditV2OperationSchema = z.union([
     name: z.string().trim().min(1).optional(),
     text: z.string().optional(),
     x: z.number().finite().optional(),
-    y: z.number().finite().optional()
+    y: z.number().finite().optional(),
+    returnNodeDetails: z.boolean().optional()
   }),
   batchV2BaseSchema.extend({
     op: z.literal("duplicate_node"),
@@ -957,7 +987,8 @@ export const batchEditV2OperationSchema = z.union([
     name: z.string().trim().min(1).optional(),
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
-    index: z.number().int().min(0).optional()
+    index: z.number().int().min(0).optional(),
+    returnNodeDetails: z.boolean().optional()
   }),
   batchV2BaseSchema.extend({
     op: z.literal("set_text"),
@@ -970,7 +1001,8 @@ export const batchEditV2OperationSchema = z.union([
     variantProperties: z.record(z.string().trim().min(1), z.string()).optional(),
     componentProperties: z.record(z.string().trim().min(1), componentPropertyOverrideValueSchema).optional(),
     swapComponentId: batchResolvableIdSchema.optional(),
-    preserveOverrides: z.boolean().optional()
+    preserveOverrides: z.boolean().optional(),
+    returnNodeDetails: z.boolean().optional()
   }).superRefine((payload, context) => {
     const hasVariantProperties = payload.variantProperties && Object.keys(payload.variantProperties).length > 0;
     const hasComponentProperties = payload.componentProperties && Object.keys(payload.componentProperties).length > 0;
@@ -989,7 +1021,8 @@ export const batchEditV2OperationSchema = z.union([
     nodeId: batchResolvableIdSchema,
     image: serializableImagePaintSchema,
     paintIndex: z.number().int().min(0).optional(),
-    preserveOtherFills: z.boolean().optional()
+    preserveOtherFills: z.boolean().optional(),
+    returnNodeDetails: z.boolean().optional()
   }).superRefine((payload, context) => {
     if (payload.preserveOtherFills || payload.paintIndex === undefined || payload.paintIndex === 0) {
       return;
@@ -1004,13 +1037,15 @@ export const batchEditV2OperationSchema = z.union([
   batchV2BaseSchema.extend({
     op: z.literal("update_node_properties"),
     nodeId: batchResolvableIdSchema,
-    properties: nodePropertiesPatchSchema
+    properties: nodePropertiesPatchSchema,
+    returnNodeDetails: z.boolean().optional()
   }),
   batchV2BaseSchema.extend({
     op: z.literal("move_node"),
     nodeId: batchResolvableIdSchema,
     parentId: batchResolvableIdSchema,
-    index: z.number().int().min(0).optional()
+    index: z.number().int().min(0).optional(),
+    returnNodeDetails: z.boolean().optional()
   }),
   batchV2BaseSchema.extend({
     op: z.literal("delete_node"),
@@ -1022,6 +1057,7 @@ export const batchEditV2OperationSchema = z.union([
 export const batchEditV2PayloadSchema = z.object({
   dryRun: z.boolean().optional(),
   confirm: z.boolean().optional(),
+  compactResults: z.boolean().optional(),
   ops: z.array(batchEditV2OperationSchema).min(1).max(MAX_BATCH_V2_OPS)
 }).superRefine((payload, context) => {
   if (!(payload.dryRun ?? true) && payload.confirm !== true) {

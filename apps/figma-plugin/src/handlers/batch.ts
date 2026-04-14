@@ -11,6 +11,7 @@ function toBatchEditV2Payload(payload: BatchEditPayload): BatchEditV2Payload {
   return {
     dryRun: payload.dryRun,
     confirm: payload.confirm,
+    compactResults: payload.compactResults,
     ops: payload.ops.map((operation) => operation as BatchEditV2Operation)
   };
 }

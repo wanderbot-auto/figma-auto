@@ -12,6 +12,7 @@ import { BridgeLogger } from "../dist/logging/bridge-log.js";
 import { resolveBridgeListenOptions, resolvePublicMcpHttpUrl } from "../dist/config.js";
 import { ProtocolFailure } from "../dist/errors.js";
 import { validationIssuesToProtocolError } from "../dist/errors.js";
+import { formatJson } from "../dist/format.js";
 import { registerBridgeResources } from "../dist/resources.js";
 import { parseIncomingMessage } from "../dist/schema/protocol.js";
 import { PluginSessionStore } from "../dist/session/plugin-session-store.js";
@@ -355,7 +356,7 @@ test("bridge MCP resources expose static entries and dynamic templates", async (
     {}
   );
   assert.equal(sessionResult.contents[0].mimeType, "application/json");
-  assert.match(sessionResult.contents[0].text, /"connected": false/);
+  assert.match(sessionResult.contents[0].text, /"connected":false/);
 
   const nodeResult = await mcpServer._registeredResourceTemplates["figma-node"].readCallback(
     new URL("figma://node/1%3A2"),
@@ -364,7 +365,33 @@ test("bridge MCP resources expose static entries and dynamic templates", async (
   );
   assert.equal(calls[0].name, "figma.get_node");
   assert.deepEqual(calls[0].payload, { nodeId: "1:2" });
-  assert.match(nodeResult.contents[0].text, /"name": "figma.get_node"/);
+  assert.match(nodeResult.contents[0].text, /"name":"figma.get_node"/);
+
+  await mcpServer._registeredResources["figma://components"].readCallback(
+    new URL("figma://components"),
+    {}
+  );
+  await mcpServer._registeredResources["figma://variables"].readCallback(
+    new URL("figma://variables"),
+    {}
+  );
+
+  assert.deepEqual(calls[1], {
+    name: "figma.get_components",
+    payload: {
+      includeProperties: false
+    }
+  });
+  assert.deepEqual(calls[2], {
+    name: "figma.get_variables",
+    payload: {
+      includeValues: false
+    }
+  });
+});
+
+test("formatJson returns compact JSON without indentation", () => {
+  assert.equal(formatJson({ ok: true, nested: { value: 1 } }), "{\"ok\":true,\"nested\":{\"value\":1}}");
 });
 
 test("HTTP MCP errors always include JSON content type", async () => {
