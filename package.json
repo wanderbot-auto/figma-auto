@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "build:bridge": "npm run build -w @figma-auto/protocol && npm run build -w @figma-auto/mcp-bridge",
+    "build:bridge-manager-app": "./scripts/build-bridge-manager-app.sh",
+    "build:bridge-manager-dmg": "./scripts/build-bridge-manager-dmg.sh",
     "build:plugin": "npm run build -w @figma-auto/figma-plugin",
     "build": "npm run build -w @figma-auto/protocol && npm run build -w @figma-auto/mcp-bridge && npm run build -w @figma-auto/figma-plugin",
     "dev:bridge": "node scripts/start-local-bridge.mjs --skip-build",

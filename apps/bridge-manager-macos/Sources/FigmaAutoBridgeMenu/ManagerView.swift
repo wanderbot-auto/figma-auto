@@ -44,21 +44,10 @@ struct ManagerView: View {
   private let bridgeListMaxHeight: CGFloat = 240
 
   var body: some View {
-    ZStack {
-      LinearGradient(
-        colors: [
-          BridgePalette.canvasTop,
-          BridgePalette.canvasBottom
-        ],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      )
-      .ignoresSafeArea()
-
-      dashboardScreen
-        .padding(14)
-    }
-    .frame(width: 448, height: 620, alignment: .topLeading)
+    dashboardScreen
+      .padding(16)
+      .frame(width: 456, height: 640, alignment: .topLeading)
+      .background(BridgePalette.bg200)
     .onAppear {
       syncSelection()
       refreshLogEntries()
@@ -102,11 +91,11 @@ struct ManagerView: View {
   }
 
   private var dashboardScreen: some View {
-    VStack(spacing: 12) {
+    VStack(spacing: 16) {
       dashboardToolbar
 
       ScrollView(showsIndicators: false) {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
           selectedInspector
           if isLogsExpanded {
             logsDrawer
@@ -123,10 +112,10 @@ struct ManagerView: View {
     HStack(alignment: .center, spacing: 10) {
       VStack(alignment: .leading, spacing: 3) {
         Text("Bridge Manager")
-          .font(.system(size: 18, weight: .semibold))
+          .font(.system(size: 20, weight: .semibold))
           .foregroundStyle(BridgePalette.heading)
-        Text("Local MCP bridge instances")
-          .font(.system(size: 11, weight: .medium))
+        Text("Manage local MCP bridge instances, status, and logs.")
+          .font(.system(size: 12, weight: .medium))
           .foregroundStyle(BridgePalette.text200)
       }
 
@@ -141,6 +130,8 @@ struct ManagerView: View {
       MetricPill(label: "Failed", value: store.failedCount, tint: BridgePalette.accent200)
       toolbarActionsMenu
     }
+    .padding(16)
+    .background(cardBackground)
   }
 
   private var selectedInspector: some View {
@@ -326,14 +317,7 @@ struct ManagerView: View {
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
-    .background(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(BridgePalette.footerSurface)
-        .overlay(
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(BridgePalette.border, lineWidth: 1)
-        )
-    )
+    .background(cardBackground)
   }
 
   private var logControls: some View {
@@ -351,7 +335,7 @@ struct ManagerView: View {
       .frame(height: 34)
       .background(
         RoundedRectangle(cornerRadius: 11, style: .continuous)
-          .fill(.white)
+          .fill(BridgePalette.inputSurface)
           .overlay(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
               .stroke(BridgePalette.border, lineWidth: 1)
@@ -562,7 +546,7 @@ struct ManagerView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
               RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.white.opacity(0.74))
+                .fill(BridgePalette.bg100)
                 .overlay(
                   RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(BridgePalette.border, lineWidth: 1)
@@ -580,7 +564,7 @@ struct ManagerView: View {
     .padding(14)
     .background(
       RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(BridgePalette.bg200)
+        .fill(BridgePalette.bg100)
         .overlay(
           RoundedRectangle(cornerRadius: 14, style: .continuous)
             .stroke(BridgePalette.border, lineWidth: 1)
@@ -718,13 +702,13 @@ struct ManagerView: View {
   }
 
   private var cardBackground: some View {
-    RoundedRectangle(cornerRadius: 18, style: .continuous)
+    RoundedRectangle(cornerRadius: 12, style: .continuous)
       .fill(BridgePalette.cardSurface)
       .overlay(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
           .stroke(BridgePalette.cardStroke, lineWidth: 1)
       )
-      .shadow(color: BridgePalette.cardShadow, radius: 12, x: 0, y: 8)
+      .shadow(color: BridgePalette.cardShadow, radius: 4, x: 0, y: 1)
   }
 
   private func addBridge() {
@@ -1026,14 +1010,14 @@ private struct BridgeRow: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
     .background(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
         .fill(rowFill)
         .overlay(
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
             .stroke(rowBorder, lineWidth: 1)
         )
     )
-    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     .onTapGesture(perform: select)
     .onHover { hovering in
       isHovering = hovering
@@ -1107,12 +1091,12 @@ private struct InspectorField: View {
         .font(.system(size: 13, weight: .medium))
         .foregroundStyle(BridgePalette.text100)
         .padding(.horizontal, 12)
-        .frame(height: 38)
+        .frame(height: 36)
         .background(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
             .fill(BridgePalette.inputSurface)
             .overlay(
-              RoundedRectangle(cornerRadius: 12, style: .continuous)
+              RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(validationMessage == nil ? BridgePalette.border : BridgePalette.destructiveBorder, lineWidth: 1)
             )
         )
@@ -1142,7 +1126,7 @@ private struct StatusCapsule: View {
     }
     .foregroundStyle(statusForeground)
     .padding(.horizontal, 10)
-    .padding(.vertical, 6)
+    .padding(.vertical, 5)
     .background(
       Capsule()
         .fill(statusBackground)
@@ -1169,9 +1153,9 @@ private struct StatusCapsule: View {
     case .building, .starting:
       return BridgePalette.primarySoft
     case .stopping, .stopped:
-      return BridgePalette.bg300.opacity(0.55)
+      return BridgePalette.textSoft
     case .failed:
-      return BridgePalette.destructiveBackground
+      return Color(hex: 0xFEE2E2)
     }
   }
 }
@@ -1192,10 +1176,10 @@ private struct MetricPill: View {
     .padding(.horizontal, 10)
     .padding(.vertical, 7)
     .background(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(.white.opacity(0.72))
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(BridgePalette.bg100)
         .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(BridgePalette.border, lineWidth: 1)
         )
     )
@@ -1261,10 +1245,10 @@ private struct InlineErrorStrip: View {
     .padding(.vertical, 9)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(BridgePalette.destructiveBackground)
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(Color(hex: 0xFEF2F2))
         .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(BridgePalette.destructiveBorder, lineWidth: 1)
         )
     )
@@ -1328,10 +1312,10 @@ private struct FileDetailRow: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
     .background(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(.white.opacity(0.74))
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(BridgePalette.bg200)
         .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(BridgePalette.border, lineWidth: 1)
         )
     )
@@ -1484,11 +1468,11 @@ private struct AppButtonStyle: ButtonStyle {
     case .primary:
       return .white
     case .secondary:
-      return BridgePalette.text100
+      return BridgePalette.text200
     case .ghost, .ghostCompact:
       return BridgePalette.primary100
     case .destructive:
-      return BridgePalette.accent200
+      return BridgePalette.destructiveText
     }
   }
 
@@ -1497,9 +1481,9 @@ private struct AppButtonStyle: ButtonStyle {
     case .primary:
       return BridgePalette.primary100
     case .secondary:
-      return .white
+      return BridgePalette.bg100
     case .ghost, .ghostCompact:
-      return BridgePalette.primarySoft
+      return BridgePalette.bg100
     case .destructive:
       return BridgePalette.destructiveBackground
     }
@@ -1512,7 +1496,7 @@ private struct AppButtonStyle: ButtonStyle {
     case .secondary:
       return BridgePalette.border
     case .ghost, .ghostCompact:
-      return BridgePalette.primaryBorder
+      return BridgePalette.border
     case .destructive:
       return BridgePalette.destructiveBorder
     }
@@ -1541,7 +1525,7 @@ private struct AppButtonStyle: ButtonStyle {
     case .ghostCompact:
       return 10
     case .primary, .secondary, .ghost, .destructive:
-      return 12
+      return 10
     }
   }
 }
@@ -1554,12 +1538,12 @@ private struct FilterChipStyle: ButtonStyle {
       .font(.system(size: 11, weight: .semibold))
       .foregroundStyle((isSelected ? BridgePalette.primary100 : BridgePalette.text200).opacity(configuration.isPressed ? 0.82 : 1))
       .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.vertical, 7)
       .background(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .fill((isSelected ? BridgePalette.primarySoft : .white).opacity(configuration.isPressed ? 0.82 : 1))
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill((isSelected ? BridgePalette.primarySoft : BridgePalette.bg100).opacity(configuration.isPressed ? 0.82 : 1))
           .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
               .stroke(isSelected ? BridgePalette.primaryBorder : BridgePalette.border, lineWidth: 1)
           )
       )
@@ -1572,10 +1556,10 @@ private struct IconButtonStyle: ButtonStyle {
       .foregroundStyle(BridgePalette.text200)
       .frame(width: 34, height: 34)
       .background(
-        Circle()
-          .fill(.white.opacity(configuration.isPressed ? 0.62 : 0.82))
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(BridgePalette.bg100.opacity(configuration.isPressed ? 0.82 : 1))
           .overlay(
-            Circle()
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
               .stroke(BridgePalette.border, lineWidth: 1)
           )
       )
