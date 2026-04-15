@@ -33,8 +33,12 @@ final class BridgeConfigurationTests: XCTestCase {
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
     try "{}".write(to: tempRoot.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+    let bridgeDistURL = tempRoot
+      .appendingPathComponent("apps/mcp-bridge/dist", isDirectory: true)
+    try FileManager.default.createDirectory(at: bridgeDistURL, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: bridgeDistURL.appendingPathComponent("index.js").path, contents: Data())
 
-    let config = BridgeInstanceConfig(name: "maker-portfolio")
+    let config = BridgeInstanceConfig(slug: "maker-portfolio", displayName: "Maker Portfolio")
     let resolved = try BridgeConfigurationResolver.resolve(workspaceRoot: tempRoot, config: config)
 
     XCTAssertEqual(
@@ -51,8 +55,12 @@ final class BridgeConfigurationTests: XCTestCase {
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
     try "{}".write(to: tempRoot.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+    let bridgeDistURL = tempRoot
+      .appendingPathComponent("apps/mcp-bridge/dist", isDirectory: true)
+    try FileManager.default.createDirectory(at: bridgeDistURL, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: bridgeDistURL.appendingPathComponent("index.js").path, contents: Data())
 
-    let config = BridgeInstanceConfig(name: "maker-portfolio", portOverride: "70000")
+    let config = BridgeInstanceConfig(slug: "maker-portfolio", displayName: "Maker Portfolio", portOverride: "70000")
 
     XCTAssertThrowsError(try BridgeConfigurationResolver.resolve(workspaceRoot: tempRoot, config: config)) { error in
       XCTAssertEqual(
@@ -60,5 +68,13 @@ final class BridgeConfigurationTests: XCTestCase {
         "Port override must be between 1 and 65535: 70000"
       )
     }
+  }
+
+  func testDefaultProductInstancesAreBusinessFriendly() {
+    let defaults = BridgeConfigurationResolver.defaultProductInstances()
+
+    XCTAssertEqual(defaults.map(\.slug), ["marketing-landing", "product-flow", "design-system"])
+    XCTAssertEqual(defaults.map(\.displayName), ["Marketing Landing", "Product Flow", "Design System"])
+    XCTAssertEqual(defaults.map(\.autoBuild), [false, false, false])
   }
 }

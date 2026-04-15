@@ -7,6 +7,7 @@ root_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
 package_path="$root_dir/apps/bridge-manager-macos"
 product_name="FigmaAutoBridgeMenu"
+display_name="Figma Auto Bridge"
 app_name="$product_name.app"
 configuration="release"
 target_arch="universal"
@@ -139,6 +140,10 @@ contents_path="$app_path/Contents"
 macos_path="$contents_path/MacOS"
 resources_path="$contents_path/Resources"
 plist_path="$contents_path/Info.plist"
+runtime_resources_path="$resources_path/figma-auto-runtime"
+
+printf 'Building bundled bridge runtime assets...\n'
+(cd "$root_dir" && npm run build)
 
 case "$target_arch" in
   universal)
@@ -178,6 +183,9 @@ case "$target_arch" in
     ;;
 esac
 
+printf 'Packaging bundled runtime resources...\n'
+"$script_dir/package-bridge-manager-runtime.sh" "$runtime_resources_path"
+
 cat > "$plist_path" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -192,9 +200,9 @@ cat > "$plist_path" <<EOF
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleDisplayName</key>
-  <string>$product_name</string>
+  <string>$display_name</string>
   <key>CFBundleName</key>
-  <string>$product_name</string>
+  <string>$display_name</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

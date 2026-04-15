@@ -94,14 +94,64 @@ enum BridgeRuntimeStatus: Equatable {
   }
 }
 
+struct BridgeSessionDetails: Equatable {
+  let fileKey: String?
+  let pageId: String
+  let lastSeenAt: String
+}
+
+enum BridgeConnectionState: Equatable {
+  case idle
+  case checking
+  case waitingForPlugin
+  case connected(BridgeSessionDetails)
+  case unreachable(String)
+
+  var badgeTitle: String {
+    switch self {
+    case .idle:
+      return "Idle"
+    case .checking:
+      return "Checking"
+    case .waitingForPlugin:
+      return "Run Plugin"
+    case .connected:
+      return "Connected"
+    case .unreachable:
+      return "Unavailable"
+    }
+  }
+
+  var guidance: String {
+    switch self {
+    case .idle:
+      return "Start the local bridge to make this MCP endpoint available."
+    case .checking:
+      return "Checking bridge health and Figma session status."
+    case .waitingForPlugin:
+      return "Bridge is ready. Open the matching Figma file and run this plugin instance."
+    case let .connected(details):
+      if let fileKey = details.fileKey, !fileKey.isEmpty {
+        return "Plugin connected. fileKey \(fileKey)"
+      }
+      return "Plugin connected. Local draft or unpublished file."
+    case let .unreachable(message):
+      return message
+    }
+  }
+}
+
 @MainActor
 final class BridgeInstance: ObservableObject, Identifiable {
   let id: UUID
 
-  @Published var name: String
+  @Published var slug: String
+  @Published var displayName: String
+  @Published var figmaFileLabel: String
   @Published var portOverride: String
   @Published var autoBuild: Bool
   @Published private(set) var status: BridgeRuntimeStatus = .stopped(lastExitCode: nil)
+  @Published private(set) var connectionState: BridgeConnectionState = .idle
   @Published private(set) var lastErrorMessage: String?
 
   var bridgeProcess: Process?
@@ -111,7 +161,9 @@ final class BridgeInstance: ObservableObject, Identifiable {
 
   init(config: BridgeInstanceConfig) {
     id = config.id
-    name = config.name
+    slug = config.slug
+    displayName = config.displayName
+    figmaFileLabel = config.figmaFileLabel
     portOverride = config.portOverride
     autoBuild = config.autoBuild
   }
@@ -119,18 +171,27 @@ final class BridgeInstance: ObservableObject, Identifiable {
   var config: BridgeInstanceConfig {
     BridgeInstanceConfig(
       id: id,
-      name: name,
+      slug: slug,
+      displayName: displayName,
+      figmaFileLabel: figmaFileLabel,
       portOverride: portOverride,
       autoBuild: autoBuild
     )
   }
 
   var normalizedName: String {
-    BridgeConfigurationResolver.normalizeInstanceName(name)
+    BridgeConfigurationResolver.normalizeInstanceName(slug)
   }
 
   func setStatus(_ newStatus: BridgeRuntimeStatus, errorMessage: String? = nil) {
     status = newStatus
     lastErrorMessage = errorMessage
+    if !newStatus.isRunning && !newStatus.isBusy {
+      connectionState = .idle
+    }
+  }
+
+  func setConnectionState(_ newState: BridgeConnectionState) {
+    connectionState = newState
   }
 }

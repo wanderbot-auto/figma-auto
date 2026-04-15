@@ -21,22 +21,21 @@ It has 3 parts:
 - Tests cover `protocol` and `mcp-bridge`
 - There is still no separate automated plugin-side test suite
 
-## Quick Start
+## Productized macOS Flow
 
 ```bash
 npm install
-npm run build
-npm run start:local
+npm run build:bridge-manager-dmg
 ```
 
-Then load `apps/figma-plugin/manifest.json` as a local plugin in Figma and run it in the target file.
+Then install `dist/FigmaAutoBridgeMenu.app` or the generated dmg. The menu bar app now targets the productized macOS flow:
 
-If you want a long-running bridge process that Codex can attach to, the same bridge also exposes a remote MCP endpoint at `http://localhost:<port>/mcp`.
+- ships with a bundled bridge runtime and prebuilt plugin manifests
+- creates a default set of design-file instances on first launch
+- exposes one MCP connection pattern only: `url = "http://localhost:<port>/mcp"`
+- shows per-instance health so users know when to open Figma and run the matching plugin
 
-For older MCP clients that still expect the deprecated HTTP+SSE transport, the bridge also exposes:
-
-- `http://localhost:<port>/sse`
-- `http://localhost:<port>/messages`
+For development-only terminal flows and legacy SSE details, see `docs/setup-and-mcp-manual.md`.
 
 ## Windows
 
@@ -67,7 +66,7 @@ npm run start:local
 - `docs/setup-and-mcp-manual.md`: complete startup, verification, Codex MCP, and Trae MCP manual
 - `docs/local-dev.md`: local commands, env vars, troubleshooting
 - `docs/usage-zh.md`: Chinese feature overview and practical usage guide
-- `docs/macos-menu-bar-app.md`: macOS status bar app for managing multiple bridge instances
+- `docs/macos-menu-bar-app.md`: macOS-first product deployment, bundled runtime, and instance mapping flow
 - `docs/tool-surface.md`: current MCP tools and important limits
 - `docs/architecture.md`: module boundaries and request flow
 - `docs/manual-test-checklist.md`: production-oriented manual validation checklist

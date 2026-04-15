@@ -6,8 +6,8 @@ import Foundation
 @MainActor
 final class BridgeStore: ObservableObject {
   private static let minimumAutoAssignedPort = 30000
-  static let recommendedWorkspaceDisplayPath = "~/Documents/figma-auto"
-  static let recommendedWorkspaceHint = "First launch: choose ~/Documents/figma-auto. Avoid hidden folders."
+  static let recommendedWorkspaceDisplayPath = "Bundled Figma Auto Runtime"
+  static let recommendedWorkspaceHint = "This app ships with a bundled runtime. You only need Choose Workspace when developing from the repository."
 
   @Published var workspaceRootURL: URL?
   @Published var instances: [BridgeInstance] = []
@@ -45,18 +45,35 @@ final class BridgeStore: ObservableObject {
   private let stateURL: URL
   private var cancellables: Set<AnyCancellable> = []
   private var assignedBridgePorts: [UUID: Int] = [:]
+  private var healthRefreshTask: Task<Void, Never>?
+
+  var usingBundledRuntime: Bool {
+    guard let workspaceRootURL else {
+      return false
+    }
+    return Self.bundledRuntimeRoot(fileManager: fileManager)?.path == workspaceRootURL.path
+  }
+
+  private var managedLogsRootURL: URL {
+    stateURL.deletingLastPathComponent().appendingPathComponent("runtime-logs", isDirectory: true)
+  }
 
   init(fileManager: FileManager = .default) {
     self.fileManager = fileManager
     stateURL = Self.resolveStateURL(fileManager: fileManager)
 
     let loadedState = Self.loadState(from: stateURL)
-    workspaceRootURL = loadedState.workspaceRootPath.flatMap { URL(fileURLWithPath: $0, isDirectory: true) }
-      ?? Self.detectWorkspaceRoot(fileManager: fileManager)
+    let persistedWorkspaceRoot = loadedState.workspaceRootPath.flatMap { URL(fileURLWithPath: $0, isDirectory: true) }
+    if let persistedWorkspaceRoot,
+       Self.isWorkspaceRootCandidate(persistedWorkspaceRoot, fileManager: fileManager) {
+      workspaceRootURL = persistedWorkspaceRoot
+    } else {
+      workspaceRootURL = Self.detectWorkspaceRoot(fileManager: fileManager)
+    }
 
     let configs: [BridgeInstanceConfig]
     if loadedState.instances.isEmpty {
-      configs = Self.discoverInitialInstances(workspaceRootURL: workspaceRootURL, fileManager: fileManager)
+      configs = Self.bootstrapInstanceConfigs(workspaceRootURL: workspaceRootURL, fileManager: fileManager)
     } else {
       configs = loadedState.instances
     }
@@ -64,6 +81,7 @@ final class BridgeStore: ObservableObject {
     instances = configs.map(BridgeInstance.init(config:))
     observeInstances()
     saveState()
+    startHealthRefreshLoop()
 
     NotificationCenter.default.addObserver(
       forName: NSApplication.willTerminateNotification,
@@ -74,22 +92,6 @@ final class BridgeStore: ObservableObject {
         self?.shutdownForTermination()
       }
     }
-  }
-
-  func addInstance() {
-    let baseName = "bridge-\(instances.count + 1)"
-    let instance = BridgeInstance(config: BridgeInstanceConfig(name: baseName))
-    instances.append(instance)
-    observeInstances()
-    saveState()
-  }
-
-  func removeInstance(_ instance: BridgeInstance) {
-    stop(instance)
-    instances.removeAll { $0.id == instance.id }
-    releaseAssignedPort(for: instance)
-    observeInstances()
-    saveState()
   }
 
   func chooseWorkspaceRoot() {
@@ -105,7 +107,7 @@ final class BridgeStore: ObservableObject {
       workspaceRootURL = selectedURL
       globalErrorMessage = nil
       if instances.isEmpty {
-        instances = Self.discoverInitialInstances(workspaceRootURL: selectedURL, fileManager: fileManager).map(BridgeInstance.init(config:))
+        instances = Self.bootstrapInstanceConfigs(workspaceRootURL: selectedURL, fileManager: fileManager).map(BridgeInstance.init(config:))
         observeInstances()
       }
       saveState()
@@ -113,6 +115,10 @@ final class BridgeStore: ObservableObject {
   }
 
   private func preferredWorkspacePickerURL() -> URL {
+    if let bundledRuntimeURL = Self.bundledRuntimeRoot(fileManager: fileManager) {
+      return bundledRuntimeURL
+    }
+
     let recommendedURL = fileManager.homeDirectoryForCurrentUser
       .appendingPathComponent("Documents", isDirectory: true)
       .appendingPathComponent("figma-auto", isDirectory: true)
@@ -137,8 +143,31 @@ final class BridgeStore: ObservableObject {
     NSWorkspace.shared.activateFileViewerSelecting([workspaceRootURL])
   }
 
+  func refreshConnectionHealth() {
+    Task {
+      await refreshAllConnectionHealth()
+    }
+  }
+
   func resolvedConfiguration(for instance: BridgeInstance) throws -> ResolvedBridgeConfiguration {
-    try BridgeConfigurationResolver.resolve(workspaceRoot: workspaceRootURL, config: instance.config)
+    let resolved = try BridgeConfigurationResolver.resolve(workspaceRoot: workspaceRootURL, config: instance.config)
+    guard usingBundledRuntime else {
+      return resolved
+    }
+
+    let logRoot = managedLogsRootURL.appendingPathComponent(resolved.instanceName, isDirectory: true)
+    return ResolvedBridgeConfiguration(
+      instanceName: resolved.instanceName,
+      bridgePort: resolved.bridgePort,
+      bridgeHost: resolved.bridgeHost,
+      bridgeWsURL: resolved.bridgeWsURL,
+      bridgeHTTPURL: resolved.bridgeHTTPURL,
+      manifestURL: resolved.manifestURL,
+      pluginDistURL: resolved.pluginDistURL,
+      bridgeEntryURL: resolved.bridgeEntryURL,
+      bridgeLogURL: logRoot.appendingPathComponent("bridge.log"),
+      auditLogURL: logRoot.appendingPathComponent("audit.ndjson")
+    )
   }
 
   func openManifest(for instance: BridgeInstance) {
@@ -236,8 +265,11 @@ final class BridgeStore: ObservableObject {
 
     do {
       let resolved = try prepareResolvedConfigurationForStart(for: instance)
-      try await runBuild(for: instance, resolved: resolved)
+      if instance.autoBuild {
+        try await runBuild(for: instance, resolved: resolved)
+      }
       try startBridgeProcess(for: instance, resolved: resolved)
+      await refreshConnectionHealth(for: instance)
     } catch is CancellationError {
       releaseAssignedPort(for: instance)
       instance.setStatus(.stopped(lastExitCode: nil))
@@ -276,7 +308,7 @@ final class BridgeStore: ObservableObject {
     try ensureLogDirectories(for: resolved)
     try appendLogDivider(
       to: resolved.bridgeLogURL,
-      title: "Build \(instance.name)"
+      title: "Build \(instance.displayName)"
     )
 
     let process = try configuredShellProcess(
@@ -339,10 +371,11 @@ final class BridgeStore: ObservableObject {
   ) throws {
     instance.stopRequested = false
     instance.setStatus(.starting)
+    instance.setConnectionState(.checking)
     try ensureLogDirectories(for: resolved)
     try appendLogDivider(
       to: resolved.bridgeLogURL,
-      title: "Bridge \(instance.name)"
+      title: "Bridge \(instance.displayName)"
     )
 
     let logHandle = try logFileHandle(for: resolved.bridgeLogURL)
@@ -479,6 +512,7 @@ final class BridgeStore: ObservableObject {
   }
 
   private func shutdownForTermination() {
+    healthRefreshTask?.cancel()
     for instance in instances {
       instance.stopRequested = true
       if let buildProcess = instance.buildProcess {
@@ -501,7 +535,7 @@ final class BridgeStore: ObservableObject {
       throw BridgeConfigurationError.missingWorkspaceRoot
     }
 
-    let normalizedName = BridgeConfigurationResolver.normalizeInstanceName(instance.name)
+    let normalizedName = BridgeConfigurationResolver.normalizeInstanceName(instance.slug)
     guard !normalizedName.isEmpty else {
       throw BridgeConfigurationError.invalidInstanceName
     }
@@ -652,7 +686,19 @@ final class BridgeStore: ObservableObject {
       }
       .store(in: &cancellables)
 
-    instance.$name
+    instance.$slug
+      .sink { [weak self] _ in
+        self?.saveState()
+      }
+      .store(in: &cancellables)
+
+    instance.$displayName
+      .sink { [weak self] _ in
+        self?.saveState()
+      }
+      .store(in: &cancellables)
+
+    instance.$figmaFileLabel
       .sink { [weak self] _ in
         self?.saveState()
       }
@@ -669,6 +715,58 @@ final class BridgeStore: ObservableObject {
         self?.saveState()
       }
       .store(in: &cancellables)
+  }
+
+  private func startHealthRefreshLoop() {
+    healthRefreshTask?.cancel()
+    healthRefreshTask = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let self else {
+          return
+        }
+
+        await self.refreshAllConnectionHealth()
+
+        do {
+          try await Task.sleep(for: .seconds(2))
+        } catch {
+          return
+        }
+      }
+    }
+  }
+
+  private func refreshAllConnectionHealth() async {
+    for instance in instances {
+      await refreshConnectionHealth(for: instance)
+    }
+  }
+
+  private func refreshConnectionHealth(for instance: BridgeInstance) async {
+    guard instance.status.isRunning else {
+      if instance.connectionState != .idle {
+        instance.setConnectionState(.idle)
+      }
+      return
+    }
+
+    instance.setConnectionState(.checking)
+
+    do {
+      let resolved = try resolvedConfiguration(for: instance)
+      let result = try await BridgeHealthProbe.fetchSessionStatus(mcpURL: resolved.mcpURL)
+      if result.connected, let session = result.session {
+        instance.setConnectionState(.connected(BridgeSessionDetails(
+          fileKey: session.fileKey,
+          pageId: session.pageId,
+          lastSeenAt: session.lastSeenAt
+        )))
+      } else {
+        instance.setConnectionState(.waitingForPlugin)
+      }
+    } catch {
+      instance.setConnectionState(.unreachable(error.localizedDescription))
+    }
   }
 
   private func saveState() {
@@ -707,6 +805,10 @@ final class BridgeStore: ObservableObject {
   }
 
   private static func detectWorkspaceRoot(fileManager: FileManager) -> URL? {
+    if let bundledRuntimeURL = bundledRuntimeRoot(fileManager: fileManager) {
+      return bundledRuntimeURL
+    }
+
     let candidateURLs = [
       URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true),
       URL(fileURLWithPath: Bundle.main.bundleURL.deletingLastPathComponent().path, isDirectory: true),
@@ -722,17 +824,23 @@ final class BridgeStore: ObservableObject {
     return nil
   }
 
+  private static func bundledRuntimeRoot(fileManager: FileManager) -> URL? {
+    guard let resourceURL = Bundle.main.resourceURL else {
+      return nil
+    }
+
+    let bundledRuntimeURL = resourceURL.appendingPathComponent("figma-auto-runtime", isDirectory: true)
+    guard isWorkspaceRootCandidate(bundledRuntimeURL, fileManager: fileManager) else {
+      return nil
+    }
+
+    return bundledRuntimeURL
+  }
+
   private static func walkUpForWorkspaceRoot(startingAt url: URL, fileManager: FileManager) -> URL? {
     var currentURL = url.resolvingSymlinksInPath()
     while true {
-      let packageURL = currentURL.appendingPathComponent("package.json")
-      let bridgeURL = currentURL
-        .appendingPathComponent("apps", isDirectory: true)
-        .appendingPathComponent("mcp-bridge", isDirectory: true)
-        .appendingPathComponent("src", isDirectory: true)
-        .appendingPathComponent("index.ts")
-
-      if fileManager.fileExists(atPath: packageURL.path), fileManager.fileExists(atPath: bridgeURL.path) {
+      if isWorkspaceRootCandidate(currentURL, fileManager: fileManager) {
         return currentURL
       }
 
@@ -744,12 +852,32 @@ final class BridgeStore: ObservableObject {
     }
   }
 
-  private static func discoverInitialInstances(
+  private static func isWorkspaceRootCandidate(_ url: URL, fileManager: FileManager) -> Bool {
+    let packageURL = url.appendingPathComponent("package.json")
+    let bridgeSourceURL = url
+      .appendingPathComponent("apps", isDirectory: true)
+      .appendingPathComponent("mcp-bridge", isDirectory: true)
+      .appendingPathComponent("src", isDirectory: true)
+      .appendingPathComponent("index.ts")
+    let bridgeDistURL = url
+      .appendingPathComponent("apps", isDirectory: true)
+      .appendingPathComponent("mcp-bridge", isDirectory: true)
+      .appendingPathComponent("dist", isDirectory: true)
+      .appendingPathComponent("index.js")
+
+    guard fileManager.fileExists(atPath: packageURL.path) else {
+      return false
+    }
+
+    return fileManager.fileExists(atPath: bridgeSourceURL.path) || fileManager.fileExists(atPath: bridgeDistURL.path)
+  }
+
+  private static func bootstrapInstanceConfigs(
     workspaceRootURL: URL?,
     fileManager: FileManager
   ) -> [BridgeInstanceConfig] {
     guard let workspaceRootURL else {
-      return []
+      return BridgeConfigurationResolver.defaultProductInstances()
     }
 
     let instancesURL = workspaceRootURL
@@ -768,6 +896,22 @@ final class BridgeStore: ObservableObject {
       .map(\.lastPathComponent)
       .sorted()
 
-    return names.map { BridgeInstanceConfig(name: $0) }
+    if names.isEmpty {
+      return BridgeConfigurationResolver.defaultProductInstances()
+    }
+
+    let preferred = BridgeConfigurationResolver.defaultProductInstances()
+    let preferredBySlug = Dictionary(uniqueKeysWithValues: preferred.map { ($0.slug, $0) })
+    return names.map { slug in
+      if let preferredConfig = preferredBySlug[slug] {
+        return preferredConfig
+      }
+
+      return BridgeInstanceConfig(
+        slug: slug,
+        displayName: BridgeConfigurationResolver.displayName(for: slug),
+        figmaFileLabel: BridgeConfigurationResolver.displayName(for: slug)
+      )
+    }
   }
 }

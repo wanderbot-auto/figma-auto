@@ -6,6 +6,8 @@ This manual covers three things:
 2. How to connect the Figma local plugin to the bridge and verify that the session is healthy.
 3. How to configure `figma-auto` as an MCP server in Codex and Trae.
 
+For normal macOS product usage, prefer the bundled menu bar app path in `docs/macos-menu-bar-app.md`. The repository-centric commands below are primarily for development and release engineering.
+
 ## 1. Prerequisites
 
 - macOS or Windows for normal local development. The macOS menu bar app is macOS-only.
@@ -250,6 +252,13 @@ Verify:
 ```bash
 codex mcp list
 codex mcp get figma_auto_bridge
+```
+
+For the productized menu bar app, this is the only end-user MCP configuration you should document:
+
+```toml
+[mcp_servers.figma_auto_bridge]
+url = "http://localhost:<port>/mcp"
 ```
 
 ### Option B: Codex command-launch mode

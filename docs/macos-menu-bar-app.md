@@ -1,12 +1,15 @@
 # macOS Menu Bar App
 
-`apps/bridge-manager-macos` is a Swift menu bar app for managing multiple local `figma-auto` bridge instances.
+`apps/bridge-manager-macos` is the macOS-first product entrypoint for `figma-auto`.
 
 It replaces the old workflow of manually running `scripts/start-local-bridge.sh` in separate terminals when you want multiple bridges.
+Release builds package a bundled bridge runtime and prebuilt plugin manifests so normal users do not need repository paths during setup.
 It runs as a menu bar only app and hides its Dock icon.
-Each running bridge instance can also be used as a remote MCP server at `http://localhost:<port>/mcp`.
+Each running bridge instance is exposed through one MCP connection model only: `http://localhost:<port>/mcp`.
 
 ## Run
+
+Developer run from the repo:
 
 ```bash
 cd apps/bridge-manager-macos
@@ -44,7 +47,7 @@ Notes:
 
 - default signing is ad-hoc, which is fine for local use
 - use `--sign` with a real certificate if you want to distribute the app outside your machine; ad-hoc signing is not sufficient for other machines
-- after moving the app outside the repo, the first launch may require `Choose Workspace` so the app can locate the `figma-auto` repository root
+- the app build now bundles a `figma-auto-runtime` folder into `Contents/Resources`, including bridge assets, plugin manifests, and dependencies
 
 ## Build `.dmg`
 
@@ -77,23 +80,24 @@ Notes:
 
 ## What It Does
 
-- keeps a persistent list of named bridge instances
-- derives ports from the same instance-name hashing rule as the old scripts
-- generates per-instance plugin bundles in `apps/figma-plugin/instances/<name>/`
+- keeps a persistent list of business-friendly design file mappings
+- boots with bundled default instances such as Marketing Landing, Product Flow, and Design System
+- keeps a one-design-file-per-instance model so teams do not need to invent their own naming scheme
 - starts and stops multiple bridge processes
-- shows running, busy, stopped, and failed bridge status with a richer control surface UI
-- writes bridge logs to `logs/<name>/bridge.log`
-- writes audit logs to `logs/<name>/audit.ndjson`
-- reveals manifests and logs in Finder for quick import/debugging
+- shows bridge runtime status plus plugin health, including a direct "run the plugin in Figma" prompt when disconnected
+- reveals manifests, MCP URLs, logs, and plugin bundles with one-click copy/open actions
 - gives Codex a stable long-running bridge process to connect to over HTTP MCP
 
-## Workspace Detection
+## Bundled Runtime
 
-The app tries to auto-detect the `figma-auto` repo root. If it cannot, use `Choose Workspace` in the menu bar panel and select the repository root.
+The app now prefers a bundled `figma-auto-runtime` inside the app resources. Writable logs are stored under `~/Library/Application Support/figma-auto/bridge-manager/runtime-logs/`.
+
+Use `Choose Dev Workspace` only when you intentionally want the menu bar app to point at a local repository checkout.
 
 ## Notes
 
-- The app uses `npm run build` before start when `Auto build on start` is enabled.
+- The release build ships prebuilt plugin manifests and bridge assets, so normal use does not require `npm run build` from the user.
 - The app launches `npm` and `node` through `zsh -lc`, so your login shell environment must be able to resolve those commands.
 - App state is stored at `~/Library/Application Support/figma-auto/bridge-manager/state.json`.
 - If Codex should attach to a menu-bar-managed instance, configure Codex with `url = "http://localhost:<port>/mcp"` instead of a `command` entry for the same instance.
+- The shortest operator SOP is: start the app, open the mapped Figma file, run the plugin, wait for green status, then copy the MCP URL.
