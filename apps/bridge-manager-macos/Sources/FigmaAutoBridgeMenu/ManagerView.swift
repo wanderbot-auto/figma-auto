@@ -156,13 +156,15 @@ struct ManagerView: View {
       } else {
         LazyVStack(spacing: 8) {
           ForEach(store.instances) { instance in
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
               BridgeRow(
                 instance: instance,
                 isSelected: instance.id == selectedInstance?.id,
                 visualStyle: visualStyle(for: instance),
                 select: {
-                  selectedInstanceID = instance.id
+                  withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    selectedInstanceID = instance.id
+                  }
                 },
                 requestDelete: {
                   requestDelete(instance)
@@ -172,11 +174,18 @@ struct ManagerView: View {
 
               if instance.id == selectedInstance?.id {
                 expandedBridgePanel(for: instance)
+                  .transition(
+                    .asymmetric(
+                      insertion: .move(edge: .top).combined(with: .opacity),
+                      removal: .scale(scale: 0.98, anchor: .top).combined(with: .opacity)
+                    )
+                  )
               }
             }
           }
         }
         .padding(.top, 2)
+        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: selectedInstanceID)
       }
     }
     .padding(16)
@@ -312,7 +321,6 @@ struct ManagerView: View {
       }
     }
     .background(detailSectionBackground)
-    .padding(.horizontal, 14)
     .padding(.top, 2)
     .padding(.bottom, 6)
   }
