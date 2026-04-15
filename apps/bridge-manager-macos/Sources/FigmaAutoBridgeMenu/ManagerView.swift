@@ -101,7 +101,6 @@ struct ManagerView: View {
             logsDrawer
           }
           bridgeListCard
-          footerStrip
         }
         .frame(maxWidth: .infinity)
       }
@@ -114,9 +113,6 @@ struct ManagerView: View {
         Text("Figma Auto Bridge")
           .font(.system(size: 20, weight: .semibold))
           .foregroundStyle(BridgePalette.heading)
-        Text("One app, one MCP URL per file, and a health-first path to green status.")
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(BridgePalette.text200)
       }
 
       Spacer(minLength: 0)
@@ -289,51 +285,6 @@ struct ManagerView: View {
     }
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .topLeading)
-    .background(cardBackground)
-  }
-
-  private var footerStrip: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 10) {
-        VStack(alignment: .leading, spacing: 3) {
-          Text(store.usingBundledRuntime ? "Runtime" : "Workspace")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(BridgePalette.text200)
-          Text(store.workspaceRootURL?.path ?? "Workspace not configured")
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundStyle(BridgePalette.text100)
-            .lineLimit(1)
-            .truncationMode(.middle)
-
-          Text(store.usingBundledRuntime ? "Bundled runtime is active. No repository path is required for normal use." : BridgeStore.recommendedWorkspaceHint)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(BridgePalette.text200)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-
-        Spacer(minLength: 0)
-
-        if let message = store.globalErrorMessage, activeErrorMessage == nil {
-          Text(message)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(BridgePalette.accent200)
-            .lineLimit(2)
-            .multilineTextAlignment(.trailing)
-        }
-      }
-
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Shortest SOP")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(BridgePalette.text200)
-        Text("1. Start the app  2. Open the matching Figma file  3. Run the plugin  4. Wait for green status  5. Copy the MCP URL")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(BridgePalette.text100)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-    }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 10)
     .background(cardBackground)
   }
 
