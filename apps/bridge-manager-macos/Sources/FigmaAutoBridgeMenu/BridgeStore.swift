@@ -250,6 +250,31 @@ final class BridgeStore: ObservableObject {
     }
   }
 
+  func delete(_ instance: BridgeInstance) {
+    instance.stopRequested = true
+
+    if let buildProcess = instance.buildProcess {
+      terminateAndWait(process: buildProcess)
+      instance.buildProcess = nil
+    }
+
+    if let bridgeProcess = instance.bridgeProcess {
+      terminateAndWait(process: bridgeProcess)
+      instance.bridgeProcess = nil
+    }
+
+    closeLogHandle(for: instance)
+    releaseAssignedPort(for: instance)
+
+    guard let index = instances.firstIndex(where: { $0.id == instance.id }) else {
+      return
+    }
+
+    instances.remove(at: index)
+    observeInstances()
+    saveState()
+  }
+
   func buildAll() {
     Task {
       for instance in instances {

@@ -35,19 +35,29 @@ struct ManagerView: View {
   @State private var isLogsExpanded = false
   @State private var saveFeedbackText: String?
   @State private var utilityFeedbackText: String?
+  @State private var pendingDeleteInstanceID: UUID?
   @State private var saveFeedbackToken = UUID()
   @State private var utilityFeedbackToken = UUID()
 
   private let logRefreshTimer = Timer.publish(every: 1.2, on: .main, in: .common).autoconnect()
   private let detailsDrawerMaxHeight: CGFloat = 252
   private let logDrawerHeight: CGFloat = 242
-  private let bridgeListMaxHeight: CGFloat = 240
 
   var body: some View {
     dashboardScreen
       .padding(16)
       .frame(width: 456, height: 640, alignment: .topLeading)
       .background(BridgePalette.bg200)
+      .alert("Delete bridge?", isPresented: isDeleteAlertPresented) {
+        Button("Delete", role: .destructive) {
+          confirmDelete()
+        }
+        Button("Cancel", role: .cancel) {
+          pendingDeleteInstanceID = nil
+        }
+      } message: {
+        Text(deleteConfirmationMessage)
+      }
     .onAppear {
       syncSelection()
       refreshLogEntries()
@@ -96,10 +106,6 @@ struct ManagerView: View {
 
       ScrollView(showsIndicators: false) {
         VStack(spacing: 16) {
-          selectedInspector
-          if isLogsExpanded {
-            logsDrawer
-          }
           bridgeListCard
         }
         .frame(maxWidth: .infinity)
@@ -130,120 +136,6 @@ struct ManagerView: View {
     .background(cardBackground)
   }
 
-  private var selectedInspector: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      HStack(alignment: .top, spacing: 12) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Selected Design File")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(BridgePalette.text200)
-
-          Text(selectedInstanceTitle)
-            .font(.system(size: 22, weight: .semibold))
-            .foregroundStyle(BridgePalette.text100)
-            .lineLimit(1)
-        }
-
-        Spacer(minLength: 0)
-
-        if let selectedInstance {
-          VStack(alignment: .trailing, spacing: 8) {
-            StatusCapsule(status: selectedInstance.status)
-            ConnectionCapsule(state: selectedInstance.connectionState)
-          }
-        }
-      }
-
-      HStack(spacing: 10) {
-        InspectorField(
-          title: "Business Name",
-          text: selectedDisplayNameBinding,
-          placeholder: "Marketing Landing",
-          validationMessage: selectedDisplayNameValidationMessage
-        )
-        InspectorField(
-          title: "Figma File Label",
-          text: selectedFigmaFileBinding,
-          placeholder: "Marketing landing file",
-          validationMessage: nil
-        )
-      }
-
-      HStack(spacing: 8) {
-        if let selectedInstance {
-          Button(selectedInstance.status.isRunning || selectedInstance.status.isBusy ? "Stop" : "Start") {
-            toggle(selectedInstance)
-          }
-          .buttonStyle(AppButtonStyle(kind: selectedInstance.status.isRunning || selectedInstance.status.isBusy ? .secondary : .primary))
-          .disabled(hasValidationError)
-
-          if let resolved = selectedResolvedConfiguration {
-            Button("Copy MCP URL") {
-              if copyValue(resolved.mcpURL) {
-                showUtilityFeedback("MCP URL copied")
-              }
-            }
-            .buttonStyle(AppButtonStyle(kind: .ghost))
-          }
-
-          Button(isLogsExpanded ? "Hide Logs" : "Logs") {
-            let shouldExpand = !isLogsExpanded
-            isLogsExpanded = shouldExpand
-            if shouldExpand {
-              isDetailsExpanded = false
-            }
-            if isLogsExpanded {
-              refreshLogEntries()
-            }
-          }
-          .buttonStyle(AppButtonStyle(kind: .ghost))
-
-          Button(isDetailsExpanded ? "Hide Details" : "Details") {
-            let shouldExpand = !isDetailsExpanded
-            isDetailsExpanded = shouldExpand
-            if shouldExpand {
-              isLogsExpanded = false
-            }
-          }
-          .buttonStyle(AppButtonStyle(kind: .ghost))
-        }
-
-        Spacer(minLength: 0)
-
-        if let saveFeedbackText {
-          AutoSaveTag(text: saveFeedbackText)
-        }
-      }
-
-      if let message = activeErrorMessage {
-        InlineErrorStrip(message: message)
-      }
-
-      if let selectedInstance {
-        InstructionStrip(
-          title: healthTitle(for: selectedInstance),
-          message: healthGuidance(for: selectedInstance)
-        )
-      }
-
-      if let selectedInstance {
-        MappingSummaryCard(
-          businessName: selectedInstance.displayName,
-          fileLabel: selectedInstance.figmaFileLabel,
-          instanceSlug: selectedInstance.slug,
-          mcpURL: selectedResolvedConfiguration?.mcpURL ?? "Unavailable"
-        )
-      }
-
-      if isDetailsExpanded {
-        detailsDrawer
-      }
-    }
-    .padding(18)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(cardBackground)
-  }
-
   private var bridgeListCard: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
@@ -251,7 +143,7 @@ struct ManagerView: View {
           Text("Design File Mappings")
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(BridgePalette.text100)
-          Text("One Figma file per instance • \(store.instances.count) ready-to-use slots")
+          Text("Select a bridge to expand details, controls, logs, and deletion.")
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(BridgePalette.text200)
         }
@@ -262,30 +154,167 @@ struct ManagerView: View {
       if store.instances.isEmpty {
         EmptyBridgeState()
       } else {
-        ScrollView(showsIndicators: false) {
-          LazyVStack(spacing: 8) {
-            ForEach(store.instances) { instance in
+        LazyVStack(spacing: 8) {
+          ForEach(store.instances) { instance in
+            VStack(alignment: .leading, spacing: 8) {
               BridgeRow(
                 instance: instance,
                 isSelected: instance.id == selectedInstance?.id,
-                resolved: try? store.resolvedConfiguration(for: instance),
-                detailText: statusLine(for: instance),
                 visualStyle: visualStyle(for: instance),
                 select: {
                   selectedInstanceID = instance.id
+                },
+                requestDelete: {
+                  requestDelete(instance)
                 }
               )
               .environmentObject(store)
+
+              if instance.id == selectedInstance?.id {
+                expandedBridgePanel(for: instance)
+              }
             }
           }
-          .padding(.top, 2)
         }
-        .frame(maxHeight: bridgeListMaxHeight)
+        .padding(.top, 2)
       }
     }
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .topLeading)
     .background(cardBackground)
+  }
+
+  @ViewBuilder
+  private func expandedBridgePanel(for instance: BridgeInstance) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .center, spacing: 8) {
+          Text("Bridge Details")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(BridgePalette.text200)
+
+          MetaChip(text: instance.slug)
+
+          if let saveFeedbackText {
+            AutoSaveTag(text: saveFeedbackText)
+          }
+
+          Spacer(minLength: 0)
+        }
+        
+        HStack(spacing: 8) {
+          Button {
+            toggle(instance)
+          } label: {
+            Label(instance.status.isRunning || instance.status.isBusy ? "Stop" : "Start", systemImage: instance.status.isRunning || instance.status.isBusy ? "stop.fill" : "play.fill")
+          }
+          .buttonStyle(AppButtonStyle(kind: instance.status.isRunning || instance.status.isBusy ? .secondary : .primary))
+          .disabled(hasValidationError)
+
+          Spacer(minLength: 0)
+
+          HStack(spacing: 6) {
+            if let resolved = selectedResolvedConfiguration {
+              Button {
+                if copyValue(resolved.mcpURL) {
+                  showUtilityFeedback("MCP URL copied")
+                }
+              } label: {
+                Image(systemName: "link")
+              }
+              .buttonStyle(ControlIconButtonStyle())
+              .help("Copy MCP URL")
+            }
+
+            Button {
+              toggleLogsDrawer()
+            } label: {
+              Image(systemName: "text.alignleft")
+            }
+            .buttonStyle(ControlIconButtonStyle(isActive: isLogsExpanded))
+            .help(isLogsExpanded ? "Hide logs" : "Show logs")
+
+            Button {
+              toggleDetailsDrawer()
+            } label: {
+              Image(systemName: "slider.horizontal.3")
+            }
+            .buttonStyle(ControlIconButtonStyle(isActive: isDetailsExpanded))
+            .help(isDetailsExpanded ? "Hide details" : "Show details")
+
+            Button {
+              requestDelete(instance)
+            } label: {
+              Image(systemName: "trash")
+            }
+            .buttonStyle(ControlIconButtonStyle(isDestructive: true))
+            .help("Delete bridge")
+          }
+        }
+      }
+      .padding(12)
+
+      expandedPanelDivider
+
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Mapping")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(BridgePalette.text200)
+
+        HStack(spacing: 10) {
+          InspectorField(
+            title: "Business Name",
+            text: selectedDisplayNameBinding,
+            placeholder: "Marketing Landing",
+            validationMessage: selectedDisplayNameValidationMessage
+          )
+          InspectorField(
+            title: "Figma File Label",
+            text: selectedFigmaFileBinding,
+            placeholder: "Marketing landing file",
+            validationMessage: nil
+          )
+        }
+      }
+      .padding(12)
+
+      if let message = activeErrorMessage {
+        expandedPanelDivider
+
+        InlineErrorStrip(message: message)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 12)
+      }
+
+      expandedPanelDivider
+
+      BridgeHealthCard(
+        title: healthTitle(for: instance),
+        message: healthGuidance(for: instance)
+      )
+      .padding(.horizontal, 12)
+      .padding(.vertical, 12)
+
+      if isLogsExpanded {
+        expandedPanelDivider
+
+        logsDrawer
+          .padding(.horizontal, 12)
+          .padding(.vertical, 12)
+      }
+
+      if isDetailsExpanded {
+        expandedPanelDivider
+
+        detailsDrawer
+          .padding(.horizontal, 12)
+          .padding(.vertical, 12)
+      }
+    }
+    .background(detailSectionBackground)
+    .padding(.horizontal, 14)
+    .padding(.top, 2)
+    .padding(.bottom, 6)
   }
 
   private var logControls: some View {
@@ -338,16 +367,9 @@ struct ManagerView: View {
   private var logsDrawer: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .center, spacing: 10) {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Live Logs")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(BridgePalette.text100)
-
-          Text(selectedInstanceTitle)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(BridgePalette.text200)
-            .lineLimit(1)
-        }
+        Text("Live Logs")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(BridgePalette.text100)
 
         Spacer(minLength: 0)
 
@@ -368,8 +390,6 @@ struct ManagerView: View {
       logPanel
         .frame(height: logDrawerHeight)
     }
-    .padding(14)
-    .background(cardBackground)
   }
 
   private var logPanel: some View {
@@ -540,15 +560,6 @@ struct ManagerView: View {
       }
       .frame(height: detailsDrawerMaxHeight)
     }
-    .padding(14)
-    .background(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(BridgePalette.bg100)
-        .overlay(
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(BridgePalette.border, lineWidth: 1)
-        )
-    )
   }
 
   private var logEmptyState: some View {
@@ -622,13 +633,6 @@ struct ManagerView: View {
     )
   }
 
-  private var selectedInstanceTitle: String {
-    guard let selectedInstance else {
-      return "Select Design File"
-    }
-    return selectedInstance.displayName.isEmpty ? "Untitled Bridge" : selectedInstance.displayName
-  }
-
   private var activeErrorMessage: String? {
     selectedInstance?.lastErrorMessage
   }
@@ -666,6 +670,32 @@ struct ManagerView: View {
     selectedDisplayNameValidationMessage != nil
   }
 
+  private var pendingDeleteInstance: BridgeInstance? {
+    guard let pendingDeleteInstanceID else {
+      return nil
+    }
+    return store.instances.first(where: { $0.id == pendingDeleteInstanceID })
+  }
+
+  private var isDeleteAlertPresented: Binding<Bool> {
+    Binding(
+      get: { pendingDeleteInstanceID != nil },
+      set: { isPresented in
+        if !isPresented {
+          pendingDeleteInstanceID = nil
+        }
+      }
+    )
+  }
+
+  private var deleteConfirmationMessage: String {
+    guard let pendingDeleteInstance else {
+      return "This bridge will be removed from the mappings list."
+    }
+
+    return "Remove \(pendingDeleteInstance.displayName.isEmpty ? "this bridge" : pendingDeleteInstance.displayName) from the mappings list? Running processes will be stopped first."
+  }
+
   private var cardBackground: some View {
     RoundedRectangle(cornerRadius: 12, style: .continuous)
       .fill(BridgePalette.cardSurface)
@@ -674,6 +704,21 @@ struct ManagerView: View {
           .stroke(BridgePalette.cardStroke, lineWidth: 1)
       )
       .shadow(color: BridgePalette.cardShadow, radius: 4, x: 0, y: 1)
+  }
+
+  private var detailSectionBackground: some View {
+    RoundedRectangle(cornerRadius: 12, style: .continuous)
+      .fill(BridgePalette.bg100)
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(BridgePalette.border, lineWidth: 1)
+      )
+  }
+
+  private var expandedPanelDivider: some View {
+    Rectangle()
+      .fill(BridgePalette.border)
+      .frame(height: 1)
   }
 
   private func syncSelection() {
@@ -700,15 +745,40 @@ struct ManagerView: View {
     }
   }
 
-  private func bridgePortText(for instance: BridgeInstance) -> String {
-    guard let resolved = try? store.resolvedConfiguration(for: instance) else {
-      return instance.portOverride.isEmpty ? "--" : instance.portOverride
+  private func toggleLogsDrawer() {
+    let shouldExpand = !isLogsExpanded
+    isLogsExpanded = shouldExpand
+    if shouldExpand {
+      isDetailsExpanded = false
+      refreshLogEntries()
     }
-    return String(resolved.bridgePort)
   }
 
-  private func statusLine(for instance: BridgeInstance) -> String {
-    "\(instance.figmaFileLabel.isEmpty ? "Unlabeled file" : instance.figmaFileLabel) • Port \(bridgePortText(for: instance))"
+  private func toggleDetailsDrawer() {
+    let shouldExpand = !isDetailsExpanded
+    isDetailsExpanded = shouldExpand
+    if shouldExpand {
+      isLogsExpanded = false
+    }
+  }
+
+  private func requestDelete(_ instance: BridgeInstance) {
+    pendingDeleteInstanceID = instance.id
+  }
+
+  private func confirmDelete() {
+    guard let pendingDeleteInstance else {
+      pendingDeleteInstanceID = nil
+      return
+    }
+
+    if selectedInstanceID == pendingDeleteInstance.id {
+      isLogsExpanded = false
+      isDetailsExpanded = false
+    }
+
+    store.delete(pendingDeleteInstance)
+    pendingDeleteInstanceID = nil
   }
 
   private func healthTitle(for instance: BridgeInstance) -> String {
@@ -966,74 +1036,40 @@ private struct BridgeRow: View {
 
   @ObservedObject var instance: BridgeInstance
   let isSelected: Bool
-  let resolved: ResolvedBridgeConfiguration?
-  let detailText: String
   let visualStyle: BridgeVisualStyle
   let select: () -> Void
+  let requestDelete: () -> Void
 
   @State private var isHovering = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(spacing: 12) {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(visualStyle.iconBackground)
-          .frame(width: 38, height: 38)
-          .overlay {
-            Image(systemName: visualStyle.iconName)
-              .font(.system(size: 14, weight: .semibold))
-              .foregroundStyle(visualStyle.iconColor)
-          }
-
-        VStack(alignment: .leading, spacing: 4) {
-          Text(instance.displayName.isEmpty ? "Untitled Bridge" : instance.displayName)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(BridgePalette.text100)
-            .lineLimit(1)
-
-          Text(instance.figmaFileLabel.isEmpty ? "Assign one Figma file to this slot." : instance.figmaFileLabel)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(BridgePalette.text200)
-            .lineLimit(1)
-
-          Text(detailText)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(BridgePalette.text300)
-            .lineLimit(1)
+    HStack(spacing: 12) {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(visualStyle.iconBackground)
+        .frame(width: 38, height: 38)
+        .overlay {
+          Image(systemName: visualStyle.iconName)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(visualStyle.iconColor)
         }
 
-        Spacer(minLength: 0)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(instance.displayName.isEmpty ? "Untitled Bridge" : instance.displayName)
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(BridgePalette.text100)
+          .lineLimit(1)
 
-        VStack(alignment: .trailing, spacing: 8) {
-          StatusCapsule(status: instance.status)
-          ConnectionCapsule(state: instance.connectionState)
-        }
+        Text(instance.figmaFileLabel.isEmpty ? "Assign one Figma file to this slot." : instance.figmaFileLabel)
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(BridgePalette.text200)
+          .lineLimit(1)
       }
 
-      if let resolved {
-        VStack(alignment: .leading, spacing: 8) {
-          QuickValueRow(label: "Plugin", value: resolved.manifestURL.path) {
-            NSPasteboard.general.clearContents()
-            if NSPasteboard.general.setString(resolved.manifestURL.path, forType: .string) {
-              return true
-            }
-            return false
-          } openAction: {
-            store.openManifest(for: instance)
-          }
+      Spacer(minLength: 0)
 
-          QuickValueRow(label: "MCP", value: resolved.mcpURL) {
-            NSPasteboard.general.clearContents()
-            if NSPasteboard.general.setString(resolved.mcpURL, forType: .string) {
-              return true
-            }
-            return false
-          } openAction: {
-            if let url = URL(string: resolved.mcpURL) {
-              NSWorkspace.shared.open(url)
-            }
-          }
-        }
+      VStack(alignment: .trailing, spacing: 8) {
+        StatusCapsule(status: instance.status)
+        ConnectionCapsule(state: instance.connectionState)
       }
     }
     .padding(.horizontal, 12)
@@ -1074,6 +1110,12 @@ private struct BridgeRow: View {
 
       Button("Open Audit Log") {
         store.openAuditLog(for: instance)
+      }
+
+      Divider()
+
+      Button("Delete", role: .destructive) {
+        requestDelete()
       }
     }
   }
@@ -1307,31 +1349,49 @@ private struct AutoSaveTag: View {
   }
 }
 
-private struct InstructionStrip: View {
+private struct MetaChip: View {
+  let text: String
+
+  var body: some View {
+    Text(text)
+      .font(.system(size: 10, weight: .semibold, design: .monospaced))
+      .foregroundStyle(BridgePalette.text200)
+      .lineLimit(1)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(
+        Capsule()
+          .fill(BridgePalette.bg200)
+      )
+  }
+}
+
+private struct BridgeHealthCard: View {
   let title: String
   let message: String
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text(title)
-        .font(.system(size: 11, weight: .semibold))
-        .foregroundStyle(BridgePalette.text100)
-      Text(message)
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(BridgePalette.text200)
-        .fixedSize(horizontal: false, vertical: true)
+    HStack(alignment: .top, spacing: 10) {
+      RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .fill(BridgePalette.primarySoft)
+        .frame(width: 28, height: 28)
+        .overlay {
+          Image(systemName: "waveform.path.ecg")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(BridgePalette.primary100)
+        }
+
+      VStack(alignment: .leading, spacing: 5) {
+        Text(title)
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(BridgePalette.text100)
+        Text(message)
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(BridgePalette.text200)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(BridgePalette.bg100)
-        .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .stroke(BridgePalette.border, lineWidth: 1)
-        )
-    )
   }
 }
 
@@ -1360,36 +1420,6 @@ private struct InlineErrorStrip: View {
   }
 }
 
-private struct MappingSummaryCard: View {
-  let businessName: String
-  let fileLabel: String
-  let instanceSlug: String
-  let mcpURL: String
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("Mapping")
-        .font(.system(size: 11, weight: .semibold))
-        .foregroundStyle(BridgePalette.text200)
-
-      MappingValue(label: "Business", value: businessName)
-      MappingValue(label: "Figma File", value: fileLabel)
-      MappingValue(label: "Plugin ID", value: instanceSlug)
-      MappingValue(label: "MCP", value: mcpURL)
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
-    .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(BridgePalette.bg100)
-        .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .stroke(BridgePalette.border, lineWidth: 1)
-        )
-    )
-  }
-}
-
 private struct NoticePill: View {
   let text: String
 
@@ -1403,54 +1433,6 @@ private struct NoticePill: View {
         Capsule()
           .fill(BridgePalette.primarySoft)
       )
-  }
-}
-
-private struct QuickValueRow: View {
-  let label: String
-  let value: String
-  let copyAction: () -> Bool
-  let openAction: () -> Void
-
-  @State private var copyLabel = "Copy"
-  @State private var token = UUID()
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 8) {
-        Text(label)
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(BridgePalette.text200)
-        Spacer(minLength: 0)
-        Button(copyLabel) {
-          if copyAction() {
-            showCopied()
-          }
-        }
-        .buttonStyle(InlineTextActionStyle())
-        Button("Open") {
-          openAction()
-        }
-        .buttonStyle(InlineTextActionStyle())
-      }
-
-      Text(value)
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(BridgePalette.text100)
-        .lineLimit(2)
-        .truncationMode(.middle)
-    }
-  }
-
-  private func showCopied() {
-    copyLabel = "Copied!"
-    let current = UUID()
-    token = current
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-      if token == current {
-        copyLabel = "Copy"
-      }
-    }
   }
 }
 
@@ -1516,26 +1498,6 @@ private struct FileDetailRow: View {
   }
 }
 
-private struct MappingValue: View {
-  let label: String
-  let value: String
-
-  var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
-      Text(label)
-        .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(BridgePalette.text200)
-        .frame(width: 72, alignment: .leading)
-
-      Text(value)
-        .font(.system(size: 11, weight: .medium, design: .monospaced))
-        .foregroundStyle(BridgePalette.text100)
-        .lineLimit(1)
-        .truncationMode(.middle)
-    }
-  }
-}
-
 private struct InlineTextActionStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
@@ -1543,6 +1505,47 @@ private struct InlineTextActionStyle: ButtonStyle {
       .foregroundStyle(BridgePalette.primary100.opacity(configuration.isPressed ? 0.75 : 1))
       .padding(.horizontal, 2)
       .padding(.vertical, 1)
+  }
+}
+
+private struct ControlIconButtonStyle: ButtonStyle {
+  var isActive = false
+  var isDestructive = false
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.system(size: 12, weight: .semibold))
+      .frame(width: 30, height: 30)
+      .foregroundStyle(foregroundColor.opacity(configuration.isPressed ? 0.78 : 1))
+      .background(
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+          .fill(backgroundColor.opacity(configuration.isPressed ? 0.82 : 1))
+          .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+              .stroke(borderColor, lineWidth: 1)
+          )
+      )
+  }
+
+  private var foregroundColor: Color {
+    if isDestructive {
+      return BridgePalette.destructiveText
+    }
+    return isActive ? BridgePalette.primary100 : BridgePalette.text200
+  }
+
+  private var backgroundColor: Color {
+    if isDestructive {
+      return BridgePalette.destructiveBackground
+    }
+    return isActive ? BridgePalette.primarySoft : BridgePalette.bg100
+  }
+
+  private var borderColor: Color {
+    if isDestructive {
+      return BridgePalette.destructiveBorder
+    }
+    return isActive ? BridgePalette.primaryBorder : BridgePalette.border
   }
 }
 
