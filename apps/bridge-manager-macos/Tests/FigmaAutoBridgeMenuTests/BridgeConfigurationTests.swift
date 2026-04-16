@@ -77,4 +77,17 @@ final class BridgeConfigurationTests: XCTestCase {
     XCTAssertEqual(defaults.map(\.displayName), ["Marketing Landing", "Product Flow", "Design System"])
     XCTAssertEqual(defaults.map(\.autoBuild), [false, false, false])
   }
+
+  func testMakeCustomInstanceConfigGeneratesUniqueBridgeNames() {
+    let existing = [
+      BridgeInstanceConfig(slug: "design-file", displayName: "New Bridge"),
+      BridgeInstanceConfig(slug: "design-file-2", displayName: "New Bridge 2")
+    ]
+
+    let generated = BridgeConfigurationResolver.makeCustomInstanceConfig(existingConfigs: existing)
+
+    XCTAssertEqual(generated.slug, "design-file-3")
+    XCTAssertEqual(generated.displayName, "New Bridge 3")
+    XCTAssertEqual(generated.figmaFileLabel, "")
+  }
 }

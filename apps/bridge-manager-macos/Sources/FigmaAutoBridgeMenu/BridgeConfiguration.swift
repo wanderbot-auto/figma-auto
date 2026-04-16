@@ -180,6 +180,47 @@ enum BridgeConfigurationResolver {
     ]
   }
 
+  static func makeCustomInstanceConfig(existingConfigs: [BridgeInstanceConfig]) -> BridgeInstanceConfig {
+    let existingSlugs = Set(existingConfigs.map { normalizeInstanceName($0.slug) })
+    let existingDisplayNames = Set(existingConfigs.map {
+      $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    })
+
+    let slug = makeUniqueSlug(base: "design-file", existingSlugs: existingSlugs)
+    let displayName = makeUniqueDisplayName(base: "New Bridge", existingDisplayNames: existingDisplayNames)
+    return BridgeInstanceConfig(
+      slug: slug,
+      displayName: displayName,
+      figmaFileLabel: ""
+    )
+  }
+
+  private static func makeUniqueSlug(base: String, existingSlugs: Set<String>) -> String {
+    let normalizedBase = normalizeInstanceName(base)
+    guard !existingSlugs.contains(normalizedBase) else {
+      var suffix = 2
+      while existingSlugs.contains("\(normalizedBase)-\(suffix)") {
+        suffix += 1
+      }
+      return "\(normalizedBase)-\(suffix)"
+    }
+
+    return normalizedBase
+  }
+
+  private static func makeUniqueDisplayName(base: String, existingDisplayNames: Set<String>) -> String {
+    let normalizedBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !existingDisplayNames.contains(normalizedBase.lowercased()) else {
+      var suffix = 2
+      while existingDisplayNames.contains("\(normalizedBase) \(suffix)".lowercased()) {
+        suffix += 1
+      }
+      return "\(normalizedBase) \(suffix)"
+    }
+
+    return normalizedBase
+  }
+
   static func deriveInstancePort(defaultPort: Int, instanceName: String) -> Int {
     var hashValue = 0
     for scalar in instanceName.unicodeScalars {

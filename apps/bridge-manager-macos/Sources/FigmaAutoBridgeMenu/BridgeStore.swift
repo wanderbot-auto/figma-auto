@@ -250,6 +250,17 @@ final class BridgeStore: ObservableObject {
     }
   }
 
+  @discardableResult
+  func addInstance() -> BridgeInstance {
+    let instance = BridgeInstance(
+      config: BridgeConfigurationResolver.makeCustomInstanceConfig(existingConfigs: instances.map(\.config))
+    )
+    instances.append(instance)
+    observeInstances()
+    saveState()
+    return instance
+  }
+
   func delete(_ instance: BridgeInstance) {
     instance.stopRequested = true
 

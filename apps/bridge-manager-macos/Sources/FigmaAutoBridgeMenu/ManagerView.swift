@@ -27,6 +27,7 @@ private enum LogFilterScope: String, Identifiable {
 struct ManagerView: View {
   @EnvironmentObject private var store: BridgeStore
 
+  @Namespace private var bridgeCardNamespace
   @State private var selectedInstanceID: UUID?
   @State private var logFilter = ""
   @State private var logEntries: [BridgeLogEntry] = []
@@ -42,6 +43,7 @@ struct ManagerView: View {
   private let logRefreshTimer = Timer.publish(every: 1.2, on: .main, in: .common).autoconnect()
   private let detailsDrawerMaxHeight: CGFloat = 252
   private let logDrawerHeight: CGFloat = 242
+  private let cardExpansionAnimation = Animation.interactiveSpring(response: 0.36, dampingFraction: 0.86, blendDuration: 0.16)
 
   var body: some View {
     dashboardScreen
@@ -116,8 +118,11 @@ struct ManagerView: View {
   private var dashboardToolbar: some View {
     HStack(alignment: .center, spacing: 10) {
       VStack(alignment: .leading, spacing: 3) {
-        Text("Figma Auto Bridge")
-          .font(.system(size: 20, weight: .semibold))
+        Text("Figma Auto Design")
+          .font(.system(size: 17, weight: .semibold, design: .rounded))
+          .lineLimit(1)
+          .minimumScaleFactor(0.9)
+          .tracking(0.2)
           .foregroundStyle(BridgePalette.heading)
       }
 
@@ -130,7 +135,6 @@ struct ManagerView: View {
       MetricPill(label: "Running", value: store.runningCount, tint: BridgePalette.success100)
       MetricPill(label: "Busy", value: store.busyCount, tint: BridgePalette.primary100)
       MetricPill(label: "Failed", value: store.failedCount, tint: BridgePalette.accent200)
-      toolbarActionsMenu
     }
     .padding(16)
     .background(cardBackground)
@@ -138,7 +142,7 @@ struct ManagerView: View {
 
   private var bridgeListCard: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack {
+      HStack(alignment: .center, spacing: 12) {
         VStack(alignment: .leading, spacing: 3) {
           Text("Design File Mappings")
             .font(.system(size: 14, weight: .semibold))
@@ -149,20 +153,34 @@ struct ManagerView: View {
         }
 
         Spacer(minLength: 0)
+
+        HStack(spacing: 8) {
+          Button {
+            addBridge()
+          } label: {
+            Label("New Bridge", systemImage: "plus")
+          }
+          .buttonStyle(AppButtonStyle(kind: .secondary))
+
+          toolbarActionsMenu
+        }
       }
 
       if store.instances.isEmpty {
-        EmptyBridgeState()
+        EmptyBridgeState(addBridge: addBridge)
       } else {
         LazyVStack(spacing: 8) {
           ForEach(store.instances) { instance in
-            VStack(alignment: .leading, spacing: 6) {
+            let isSelected = instance.id == selectedInstance?.id
+
+            VStack(alignment: .leading, spacing: 0) {
               BridgeRow(
                 instance: instance,
-                isSelected: instance.id == selectedInstance?.id,
+                isSelected: isSelected,
+                showsStandaloneBackground: !isSelected,
                 visualStyle: visualStyle(for: instance),
                 select: {
-                  withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                  withAnimation(cardExpansionAnimation) {
                     selectedInstanceID = instance.id
                   }
                 },
@@ -172,20 +190,34 @@ struct ManagerView: View {
               )
               .environmentObject(store)
 
-              if instance.id == selectedInstance?.id {
+              if isSelected {
                 expandedBridgePanel(for: instance)
                   .transition(
                     .asymmetric(
-                      insertion: .move(edge: .top).combined(with: .opacity),
-                      removal: .scale(scale: 0.98, anchor: .top).combined(with: .opacity)
+                      insertion: .offset(y: -10).combined(with: .opacity),
+                      removal: .scale(scale: 0.985, anchor: .top).combined(with: .opacity)
                     )
                   )
               }
             }
+            .background {
+              if isSelected {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                  .fill(BridgePalette.bg100)
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                      .stroke(BridgePalette.primaryBorder, lineWidth: 1)
+                  )
+                  .shadow(color: BridgePalette.cardShadow.opacity(0.7), radius: 8, x: 0, y: 3)
+                  .matchedGeometryEffect(id: "selected-bridge-card", in: bridgeCardNamespace)
+              }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .zIndex(isSelected ? 1 : 0)
           }
         }
         .padding(.top, 2)
-        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: selectedInstanceID)
+        .animation(cardExpansionAnimation, value: selectedInstanceID)
       }
     }
     .padding(16)
@@ -320,7 +352,6 @@ struct ManagerView: View {
           .padding(.vertical, 12)
       }
     }
-    .background(detailSectionBackground)
     .padding(.top, 2)
     .padding(.bottom, 6)
   }
@@ -714,15 +745,6 @@ struct ManagerView: View {
       .shadow(color: BridgePalette.cardShadow, radius: 4, x: 0, y: 1)
   }
 
-  private var detailSectionBackground: some View {
-    RoundedRectangle(cornerRadius: 12, style: .continuous)
-      .fill(BridgePalette.bg100)
-      .overlay(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .stroke(BridgePalette.border, lineWidth: 1)
-      )
-  }
-
   private var expandedPanelDivider: some View {
     Rectangle()
       .fill(BridgePalette.border)
@@ -772,6 +794,15 @@ struct ManagerView: View {
 
   private func requestDelete(_ instance: BridgeInstance) {
     pendingDeleteInstanceID = instance.id
+  }
+
+  private func addBridge() {
+    let instance = store.addInstance()
+    withAnimation(cardExpansionAnimation) {
+      selectedInstanceID = instance.id
+      isDetailsExpanded = true
+      isLogsExpanded = false
+    }
   }
 
   private func confirmDelete() {
@@ -1044,6 +1075,7 @@ private struct BridgeRow: View {
 
   @ObservedObject var instance: BridgeInstance
   let isSelected: Bool
+  let showsStandaloneBackground: Bool
   let visualStyle: BridgeVisualStyle
   let select: () -> Void
   let requestDelete: () -> Void
@@ -1082,14 +1114,16 @@ private struct BridgeRow: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 12)
-    .background(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(rowFill)
-        .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(rowBorder, lineWidth: 1)
-        )
-    )
+    .background {
+      if showsStandaloneBackground {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(rowFill)
+          .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+              .stroke(rowBorder, lineWidth: 1)
+          )
+      }
+    }
     .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     .onTapGesture(perform: select)
     .onHover { hovering in
@@ -1321,6 +1355,8 @@ private struct MetricPill: View {
 }
 
 private struct EmptyBridgeState: View {
+  let addBridge: () -> Void
+
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Preparing default design file slots")
@@ -1331,6 +1367,13 @@ private struct EmptyBridgeState: View {
         .font(.system(size: 12, weight: .medium))
         .foregroundStyle(BridgePalette.text200)
         .fixedSize(horizontal: false, vertical: true)
+
+      Button {
+        addBridge()
+      } label: {
+        Label("Add Bridge", systemImage: "plus")
+      }
+      .buttonStyle(AppButtonStyle(kind: .secondary))
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.vertical, 10)
