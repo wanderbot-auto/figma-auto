@@ -10,3 +10,4 @@ logs/*/
 apps/figma-plugin/instances/
 apps/bridge-manager-macos/.build/
 apps/bridge-manager-macos/.swiftpm/
+.codex/
