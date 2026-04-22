@@ -1,8 +1,8 @@
 import type {
   ApplyStylesPayload,
   ApplyStylesResult,
-  GetStylesPayload,
   GetStylesResult,
+  GetStylesPayload,
   StyleSummary,
   StyleType
 } from "@figma-auto/protocol";
@@ -15,8 +15,24 @@ import {
   isTextNode,
   requireSceneNode
 } from "./node-helpers.js";
+import type { CacheEntry } from "./query-cache.js";
+import { makePayloadCacheKey, readCachedValue, writeCachedValue } from "./query-cache.js";
 import { describeNodeAsync, summarizeNode } from "./read.js";
 import { loadFontsForNode } from "./write.js";
+
+interface StyleSnapshot {
+  PAINT: PaintStyle[];
+  TEXT: TextStyle[];
+  EFFECT: EffectStyle[];
+  GRID: GridStyle[];
+}
+
+let styleSnapshotCache: CacheEntry<StyleSnapshot> | null = null;
+const styleResultCache = new Map<string, CacheEntry<GetStylesResult>>();
+const serializedStyleCache = {
+  basic: new Map<string, StyleSummary>(),
+  detailed: new Map<string, StyleSummary>()
+};
 
 async function requireStyle(styleId: string, expectedType: StyleType) {
   const style = await figma.getStyleByIdAsync(styleId);
@@ -34,7 +50,40 @@ function toSerializable(value: unknown): Record<string, unknown> {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
+async function getStyleSnapshot(): Promise<StyleSnapshot> {
+  const cached = readCachedValue(styleSnapshotCache);
+  if (cached) {
+    return cached;
+  }
+
+  const [paintStyles, textStyles, effectStyles, gridStyles] = await Promise.all([
+    figma.getLocalPaintStylesAsync(),
+    figma.getLocalTextStylesAsync(),
+    figma.getLocalEffectStylesAsync(),
+    figma.getLocalGridStylesAsync()
+  ]);
+
+  const snapshot: StyleSnapshot = {
+    PAINT: paintStyles,
+    TEXT: textStyles,
+    EFFECT: effectStyles,
+    GRID: gridStyles
+  };
+
+  styleSnapshotCache = writeCachedValue(snapshot);
+  styleResultCache.clear();
+  serializedStyleCache.basic.clear();
+  serializedStyleCache.detailed.clear();
+  return snapshot;
+}
+
 function serializeStyle(style: BaseStyle, includeDetails: boolean): StyleSummary {
+  const cache = includeDetails ? serializedStyleCache.detailed : serializedStyleCache.basic;
+  const cached = cache.get(style.id);
+  if (cached) {
+    return cached;
+  }
+
   const summary: StyleSummary = {
     id: style.id,
     key: style.key,
@@ -72,32 +121,41 @@ function serializeStyle(style: BaseStyle, includeDetails: boolean): StyleSummary
       break;
   }
 
+  cache.set(style.id, summary);
   return summary;
 }
 
 export async function getStyles(payload: GetStylesPayload): Promise<GetStylesResult> {
+  const resultCacheKey = makePayloadCacheKey(payload);
+  const cachedResult = readCachedValue(styleResultCache.get(resultCacheKey));
+  if (cachedResult) {
+    return cachedResult;
+  }
+
   const requestedTypes = new Set(payload.types ?? ["PAINT", "TEXT", "EFFECT", "GRID"]);
   const includeDetails = payload.includeDetails ?? false;
   const nameContains = payload.nameContains?.toLocaleLowerCase();
   const limit = payload.limit ?? 100;
+  const styleSnapshot = await getStyleSnapshot();
 
-  const styleGroups = await Promise.all([
-    requestedTypes.has("PAINT") ? figma.getLocalPaintStylesAsync() : Promise.resolve([]),
-    requestedTypes.has("TEXT") ? figma.getLocalTextStylesAsync() : Promise.resolve([]),
-    requestedTypes.has("EFFECT") ? figma.getLocalEffectStylesAsync() : Promise.resolve([]),
-    requestedTypes.has("GRID") ? figma.getLocalGridStylesAsync() : Promise.resolve([])
-  ]);
-
-  const styles = styleGroups.flat();
+  const styles = [
+    ...(requestedTypes.has("PAINT") ? styleSnapshot.PAINT : []),
+    ...(requestedTypes.has("TEXT") ? styleSnapshot.TEXT : []),
+    ...(requestedTypes.has("EFFECT") ? styleSnapshot.EFFECT : []),
+    ...(requestedTypes.has("GRID") ? styleSnapshot.GRID : [])
+  ];
   const filtered = styles.filter((style) =>
     nameContains ? style.name.toLocaleLowerCase().includes(nameContains) : true
   );
 
-  return {
+  const result = {
     styles: filtered.slice(0, limit).map((style) => serializeStyle(style, includeDetails)),
     totalStyles: filtered.length,
     truncated: filtered.length > limit
   };
+
+  styleResultCache.set(resultCacheKey, writeCachedValue(result));
+  return result;
 }
 
 export async function applyStyles(payload: ApplyStylesPayload): Promise<ApplyStylesResult> {

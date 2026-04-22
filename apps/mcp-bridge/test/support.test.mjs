@@ -220,6 +220,34 @@ test("session store preserves connectedAt and updates lastSeenAt for the same so
   assert.equal(second.context.pageId, "1:3");
 });
 
+test("session store reports unchanged duplicate registrations on the same socket", () => {
+  const store = new PluginSessionStore();
+  const socket = new FakeSocket("primary");
+
+  const first = store.register({
+    sessionId: "sess_1",
+    protocolVersion: "1.0.0",
+    pluginInstanceId: "plugin_1",
+    fileKey: "file_1",
+    pageId: "1:2",
+    editorType: "figma"
+  }, socket);
+
+  const second = store.register({
+    sessionId: "sess_1",
+    protocolVersion: "1.0.0",
+    pluginInstanceId: "plugin_1",
+    fileKey: "file_1",
+    pageId: "1:2",
+    editorType: "figma"
+  }, socket);
+
+  assert.equal(first.changed, true);
+  assert.equal(second.changed, false);
+  assert.equal(second.replacedSessionId, undefined);
+  assert.equal(socket.closed, false);
+});
+
 test("audit logger writes NDJSON entries", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "figma-auto-audit-"));
   const filePath = path.join(tempDir, "audit.ndjson");

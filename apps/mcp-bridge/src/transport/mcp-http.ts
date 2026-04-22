@@ -12,6 +12,7 @@ import { readJsonBody, writeJsonRpcError } from "./http-utils.js";
 interface HttpMcpSession {
   server: McpServer;
   transport: StreamableHTTPServerTransport;
+  isClosing: boolean;
 }
 
 function getSessionId(req: IncomingMessage): string | undefined {
@@ -61,12 +62,15 @@ export class RemoteMcpHttpServer {
   }
 
   async close(): Promise<void> {
-    const sessions = [...this.sessions.values()];
+    const sessions = [...this.sessions.entries()];
     this.sessions.clear();
 
-    for (const session of sessions) {
-      await session.transport.close();
-      await session.server.close();
+    for (const [sessionId, session] of sessions) {
+      await this.shutdownSession(sessionId, session, {
+        closeTransport: true,
+        closeServer: true,
+        logClose: false
+      });
     }
   }
 
@@ -101,11 +105,17 @@ export class RemoteMcpHttpServer {
 
     const server = this.createServer();
     let transport: StreamableHTTPServerTransport;
+    let activeSessionId: string | undefined;
     transport = new StreamableHTTPServerTransport({
       enableJsonResponse: true,
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (initializedSessionId) => {
-        this.sessions.set(initializedSessionId, { server, transport });
+        activeSessionId = initializedSessionId;
+        this.sessions.set(initializedSessionId, {
+          server,
+          transport,
+          isClosing: false
+        });
         void this.bridgeLogger.info("mcp_http_session_started", {
           sessionId: initializedSessionId
         });
@@ -113,28 +123,64 @@ export class RemoteMcpHttpServer {
     });
 
     transport.onclose = () => {
-      const activeSessionId = transport.sessionId;
       if (!activeSessionId) {
         return;
       }
 
-      this.sessions.delete(activeSessionId);
-      void this.bridgeLogger.info("mcp_http_session_closed", {
-        sessionId: activeSessionId
+      const session = this.sessions.get(activeSessionId);
+      if (!session || session.isClosing) {
+        return;
+      }
+
+      void this.shutdownSession(activeSessionId, session, {
+        closeTransport: false,
+        closeServer: true,
+        logClose: true
       });
-      void server.close();
     };
 
     transport.onerror = (error) => {
       void this.bridgeLogger.warn("mcp_http_transport_error", {
         message: error.message,
-        sessionId: transport.sessionId
+        sessionId: activeSessionId
       });
     };
 
     // SDK typings are slightly incompatible under exactOptionalPropertyTypes, but the transport is valid at runtime.
     await server.connect(transport as Transport);
     await transport.handleRequest(req, res, body);
+  }
+
+  private async shutdownSession(
+    sessionId: string,
+    session: HttpMcpSession,
+    options: {
+      closeTransport: boolean;
+      closeServer: boolean;
+      logClose: boolean;
+    }
+  ): Promise<void> {
+    if (session.isClosing) {
+      return;
+    }
+
+    session.isClosing = true;
+    this.sessions.delete(sessionId);
+    session.transport.onclose = () => {};
+
+    if (options.logClose) {
+      await this.bridgeLogger.info("mcp_http_session_closed", {
+        sessionId
+      });
+    }
+
+    if (options.closeTransport) {
+      await session.transport.close();
+    }
+
+    if (options.closeServer) {
+      await session.server.close();
+    }
   }
 
   private async handleGet(req: IncomingMessage, res: ServerResponse): Promise<void> {

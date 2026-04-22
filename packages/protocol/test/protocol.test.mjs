@@ -88,12 +88,22 @@ test("node tree payload accepts omitted nodeId and explicit depth", () => {
     summaryOnly: true,
     includeDesign: false,
     includePrototype: false,
-    includeTextContent: false
+    includeTextContent: false,
+    includePaints: false
   });
   assert.equal(parsed.depth, 2);
   assert.equal(parsed.nodeId, undefined);
   assert.equal(parsed.summaryOnly, true);
   assert.equal(parsed.includeDesign, false);
+  assert.equal(parsed.includePaints, false);
+});
+
+test("node tree payload rejects depths above the configured cap", () => {
+  assert.throws(() => {
+    getNodeTreePayloadSchema.parse({
+      depth: 7
+    });
+  }, /less than or equal to 6/);
 });
 
 test("get node payload accepts lightweight detail flags", () => {

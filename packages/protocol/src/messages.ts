@@ -6,6 +6,9 @@ export const MAX_BATCH_OPS = 10;
 export const MAX_BATCH_V2_OPS = 25;
 export const MAX_FIND_RESULTS = 200;
 export const MAX_NORMALIZE_NAME_RESULTS = 500;
+export const DEFAULT_GET_NODE_TREE_DEPTH = 3;
+export const MAX_GET_NODE_TREE_DEPTH = 6;
+export const MAX_GET_NODE_TREE_NODES = 500;
 
 export const ERROR_CODES = [
   "missing_session",
@@ -500,11 +503,15 @@ export interface GetNodeTreePayload {
   includeDesign?: boolean | undefined;
   includePrototype?: boolean | undefined;
   includeTextContent?: boolean | undefined;
+  includePaints?: boolean | undefined;
 }
 
 export interface GetNodeTreeResult {
   root: NodeTreeNode;
   requestedDepth?: number | undefined;
+  appliedDepth: number;
+  nodeCount: number;
+  truncated: boolean;
 }
 
 export interface FindNodesPayload {
@@ -527,6 +534,9 @@ export interface FindNodesPayload {
 
 export interface FindNodeMatch extends NodeSummary {
   matchedBy?: string[] | undefined;
+  confidence?: "high" | "medium" | "low" | undefined;
+  confidenceScore?: number | undefined;
+  path?: string[] | undefined;
 }
 
 export interface FindNodesResult {
@@ -1158,6 +1168,21 @@ export interface BatchEditItemPreview {
   after?: Record<string, unknown> | undefined;
 }
 
+export type BatchEditRiskSeverity = "high" | "medium" | "low";
+
+export interface BatchEditItemRisk {
+  code:
+    | "auto_layout_reflow"
+    | "auto_layout_position_ignored"
+    | "cross_parent_move"
+    | "destructive_delete"
+    | "instance_swap_overrides"
+    | "layout_resize_side_effect";
+  severity: BatchEditRiskSeverity;
+  message: string;
+  relatedNodeId?: string | undefined;
+}
+
 export interface BatchEditItemResult {
   index: number;
   op: BatchOperationType;
@@ -1170,6 +1195,7 @@ export interface BatchEditItemResult {
   preview?: BatchEditItemPreview | undefined;
   error?: ProtocolError | undefined;
   result?: Record<string, unknown> | undefined;
+  risks?: BatchEditItemRisk[] | undefined;
   updatedNodeId?: string | undefined;
 }
 
@@ -1333,5 +1359,7 @@ export interface BatchEditV2Result {
   dryRun: boolean;
   summary: string;
   results: BatchEditItemResult[];
+  riskCount?: number | undefined;
+  highRiskCount?: number | undefined;
   stoppedAt?: number | undefined;
 }

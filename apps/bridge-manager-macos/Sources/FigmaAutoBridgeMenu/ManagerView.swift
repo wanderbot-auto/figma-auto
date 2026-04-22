@@ -154,16 +154,12 @@ struct ManagerView: View {
 
         Spacer(minLength: 0)
 
-        HStack(spacing: 8) {
-          Button {
-            addBridge()
-          } label: {
-            Label("New Bridge", systemImage: "plus")
-          }
-          .buttonStyle(AppButtonStyle(kind: .secondary))
-
-          toolbarActionsMenu
+        Button {
+          addBridge()
+        } label: {
+          Label("New Bridge", systemImage: "plus")
         }
+        .buttonStyle(AppButtonStyle(kind: .secondary))
       }
 
       if store.instances.isEmpty {
@@ -612,44 +608,6 @@ struct ManagerView: View {
     }
     .padding(18)
     .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  private var toolbarActionsMenu: some View {
-    Menu {
-      Button("Choose Dev Workspace") {
-        store.chooseWorkspaceRoot()
-      }
-
-      Button("Reveal Runtime") {
-        store.revealWorkspaceRoot()
-      }
-      .disabled(store.workspaceRootURL == nil)
-
-      Divider()
-
-      Button("Refresh Health") {
-        store.refreshConnectionHealth()
-      }
-      .disabled(store.instances.isEmpty)
-
-      Divider()
-
-      Button("Stop All") {
-        store.stopAll()
-      }
-      .disabled(store.instances.isEmpty)
-
-      Divider()
-
-      Button("Quit") {
-        NSApplication.shared.terminate(nil)
-      }
-    } label: {
-      Image(systemName: "ellipsis.circle")
-        .font(.system(size: 18, weight: .semibold))
-    }
-    .menuStyle(.borderlessButton)
-    .buttonStyle(IconButtonStyle())
   }
 
   private var selectedDisplayNameBinding: Binding<String> {

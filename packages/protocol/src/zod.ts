@@ -13,6 +13,7 @@ import {
   MAX_FIND_RESULTS,
   MAX_BATCH_OPS,
   MAX_BATCH_V2_OPS,
+  MAX_GET_NODE_TREE_DEPTH,
   PROTOCOL_VERSION
 } from "./messages.js";
 
@@ -386,11 +387,12 @@ export const getFlowPayloadSchema = z.object({
 
 export const getNodeTreePayloadSchema = z.object({
   nodeId: z.string().min(1).optional(),
-  depth: z.number().int().min(0).optional(),
+  depth: z.number().int().min(0).max(MAX_GET_NODE_TREE_DEPTH).optional(),
   summaryOnly: z.boolean().optional(),
   includeDesign: z.boolean().optional(),
   includePrototype: z.boolean().optional(),
-  includeTextContent: z.boolean().optional()
+  includeTextContent: z.boolean().optional(),
+  includePaints: z.boolean().optional()
 });
 
 export const findNodesPayloadSchema = z.object({

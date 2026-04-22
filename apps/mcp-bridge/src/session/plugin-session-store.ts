@@ -14,19 +14,41 @@ export interface ActivePluginSession {
   lastSeenAt: string;
 }
 
+export interface RegisterSessionResult {
+  session: ActivePluginSession;
+  replacedSessionId?: string | undefined;
+  changed: boolean;
+}
+
+function hasSameContext(left: SessionRegistrationPayload, right: SessionRegistrationPayload): boolean {
+  return left.sessionId === right.sessionId
+    && left.protocolVersion === right.protocolVersion
+    && left.pluginInstanceId === right.pluginInstanceId
+    && left.fileKey === right.fileKey
+    && left.pageId === right.pageId
+    && left.editorType === right.editorType;
+}
+
 export class PluginSessionStore {
   private activeSession: ActivePluginSession | null = null;
 
-  register(context: SessionRegistrationPayload, socket: WebSocket): ActivePluginSession {
+  register(context: SessionRegistrationPayload, socket: WebSocket): RegisterSessionResult {
     const timestamp = new Date().toISOString();
-    if (this.activeSession && this.activeSession.socket !== socket) {
-      this.activeSession.socket.close(SESSION_REPLACED_CLOSE_CODE, SESSION_REPLACED_CLOSE_REASON);
+    const previousSession = this.activeSession;
+    const replacedSessionId =
+      previousSession && previousSession.socket !== socket ? previousSession.context.sessionId : undefined;
+
+    if (previousSession && replacedSessionId) {
+      previousSession.socket.close(SESSION_REPLACED_CLOSE_CODE, SESSION_REPLACED_CLOSE_REASON);
     }
 
     const connectedAt =
-      this.activeSession && this.activeSession.socket === socket
-        ? this.activeSession.connectedAt
+      previousSession && previousSession.socket === socket
+        ? previousSession.connectedAt
         : timestamp;
+    const changed = !previousSession
+      || previousSession.socket !== socket
+      || !hasSameContext(previousSession.context, context);
 
     this.activeSession = {
       context,
@@ -35,7 +57,11 @@ export class PluginSessionStore {
       lastSeenAt: timestamp
     };
 
-    return this.activeSession;
+    return {
+      session: this.activeSession,
+      changed,
+      ...(replacedSessionId ? { replacedSessionId } : {})
+    };
   }
 
   getActive(): ActivePluginSession | null {

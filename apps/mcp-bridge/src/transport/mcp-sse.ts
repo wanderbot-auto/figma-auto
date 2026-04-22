@@ -11,6 +11,7 @@ import { readJsonBody, writeJsonRpcError } from "./http-utils.js";
 interface HttpSseSession {
   server: McpServer;
   transport: SSEServerTransport;
+  isClosing: boolean;
 }
 
 function getPathname(url: string | undefined): string {
@@ -63,12 +64,15 @@ export class RemoteMcpSseServer {
   }
 
   async close(): Promise<void> {
-    const sessions = [...this.sessions.values()];
+    const sessions = [...this.sessions.entries()];
     this.sessions.clear();
 
-    for (const session of sessions) {
-      await session.transport.close();
-      await session.server.close();
+    for (const [sessionId, session] of sessions) {
+      await this.shutdownSession(sessionId, session, {
+        closeTransport: true,
+        closeServer: true,
+        logClose: false
+      });
     }
   }
 
@@ -76,19 +80,19 @@ export class RemoteMcpSseServer {
     const server = this.createServer();
     const transport = new SSEServerTransport(this.messagesPath, res);
     const sessionId = transport.sessionId;
-    this.sessions.set(sessionId, { server, transport });
+    this.sessions.set(sessionId, { server, transport, isClosing: false });
 
     transport.onclose = () => {
       const session = this.sessions.get(sessionId);
-      if (!session) {
+      if (!session || session.isClosing) {
         return;
       }
 
-      this.sessions.delete(sessionId);
-      void this.bridgeLogger.info("mcp_sse_session_closed", {
-        sessionId
+      void this.shutdownSession(sessionId, session, {
+        closeTransport: false,
+        closeServer: true,
+        logClose: true
       });
-      void server.close();
     };
 
     transport.onerror = (error) => {
@@ -109,6 +113,38 @@ export class RemoteMcpSseServer {
       this.sessions.delete(sessionId);
       await server.close();
       throw error;
+    }
+  }
+
+  private async shutdownSession(
+    sessionId: string,
+    session: HttpSseSession,
+    options: {
+      closeTransport: boolean;
+      closeServer: boolean;
+      logClose: boolean;
+    }
+  ): Promise<void> {
+    if (session.isClosing) {
+      return;
+    }
+
+    session.isClosing = true;
+    this.sessions.delete(sessionId);
+    session.transport.onclose = () => {};
+
+    if (options.logClose) {
+      await this.bridgeLogger.info("mcp_sse_session_closed", {
+        sessionId
+      });
+    }
+
+    if (options.closeTransport) {
+      await session.transport.close();
+    }
+
+    if (options.closeServer) {
+      await session.server.close();
     }
   }
 

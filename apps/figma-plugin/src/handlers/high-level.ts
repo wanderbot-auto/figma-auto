@@ -14,6 +14,10 @@ import { getVariables } from "./variables.js";
 import { describeNodeAsync, summarizeNode } from "./read.js";
 import { loadFontsForNode } from "./write.js";
 
+const SPEC_CONTENT_X = 64;
+const SPEC_CONTENT_Y = 64;
+const MAX_SPEC_TEXT_NODE_CHARS = 12000;
+
 function toSerializable(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value)) as unknown;
 }
@@ -157,6 +161,135 @@ async function buildDesignTokenSnapshot(
   };
 }
 
+interface SpecSection {
+  title: string;
+  content: string;
+}
+
+function splitSpecSectionContent(content: string, maxChars: number): string[] {
+  if (content.length <= maxChars) {
+    return [content];
+  }
+
+  const chunks: string[] = [];
+  const lines = content.split("\n");
+  let current = "";
+
+  const flushCurrent = () => {
+    if (current.length > 0) {
+      chunks.push(current);
+      current = "";
+    }
+  };
+
+  for (const line of lines) {
+    const candidate = current.length === 0 ? line : `${current}\n${line}`;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+
+    flushCurrent();
+
+    if (line.length <= maxChars) {
+      current = line;
+      continue;
+    }
+
+    let start = 0;
+    while (start < line.length) {
+      chunks.push(line.slice(start, start + maxChars));
+      start += maxChars;
+    }
+  }
+
+  flushCurrent();
+  return chunks;
+}
+
+function buildSpecSections(input: {
+  pageName: string;
+  fileName: string;
+  generatedAt: string;
+  sourcePageName: string;
+  sourcePageId: string;
+  sourceNodeSummary?: unknown;
+  selectionSummary?: unknown;
+  variableSummary?: unknown;
+  tokenSnapshot?: unknown;
+}): SpecSection[] {
+  const sections: SpecSection[] = [
+    {
+      title: "Overview",
+      content: [
+        `Spec Page: ${input.pageName}`,
+        `File: ${input.fileName}`,
+        `Generated At: ${input.generatedAt}`,
+        `Source Page: ${input.sourcePageName} (${input.sourcePageId})`
+      ].join("\n")
+    }
+  ];
+
+  if (input.sourceNodeSummary !== undefined) {
+    sections.push({
+      title: "Source Node",
+      content: JSON.stringify(input.sourceNodeSummary, null, 2)
+    });
+  }
+
+  if (input.selectionSummary !== undefined) {
+    sections.push({
+      title: "Selection",
+      content: JSON.stringify(input.selectionSummary, null, 2)
+    });
+  }
+
+  if (input.variableSummary !== undefined) {
+    sections.push({
+      title: "Variables",
+      content: JSON.stringify(input.variableSummary, null, 2)
+    });
+  }
+
+  if (input.tokenSnapshot !== undefined) {
+    sections.push({
+      title: "Design Tokens",
+      content: JSON.stringify(input.tokenSnapshot, null, 2)
+    });
+  }
+
+  return sections;
+}
+
+async function appendSpecSectionNodes(
+  container: FrameNode,
+  section: SpecSection,
+  preparedFontNode: TextNode
+): Promise<void> {
+  const sectionHeader = figma.createText();
+  sectionHeader.name = `${section.title} Heading`;
+  sectionHeader.characters = section.title;
+  sectionHeader.fontName = preparedFontNode.fontName;
+  if (typeof preparedFontNode.fontSize === "number") {
+    sectionHeader.fontSize = Math.max(preparedFontNode.fontSize + 4, 18);
+  }
+  container.appendChild(sectionHeader);
+
+  const bodyChunkLimit = Math.max(2000, MAX_SPEC_TEXT_NODE_CHARS - section.title.length - 2);
+  const chunks = splitSpecSectionContent(section.content, bodyChunkLimit);
+  chunks.forEach((chunk, index) => {
+    const text = figma.createText();
+    text.name = chunks.length > 1 ? `${section.title} ${index + 1}` : section.title;
+    text.characters = chunk;
+    text.fontName = preparedFontNode.fontName;
+    if (typeof preparedFontNode.fontSize === "number") {
+      text.fontSize = preparedFontNode.fontSize;
+    }
+    text.textAutoResize = "HEIGHT";
+    container.appendChild(text);
+  });
+}
+
 export async function normalizeNames(payload: NormalizeNamesPayload): Promise<NormalizeNamesResult> {
   const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
   const dryRun = payload.dryRun ?? true;
@@ -234,41 +367,58 @@ export async function createSpecPage(payload: CreateSpecPagePayload): Promise<Cr
   const variableSnapshot = !includeTokens && includeVariables
     ? await getVariables({ includeValues: includeVariableValues })
     : null;
+  const generatedAt = new Date().toISOString();
+  const sourceNodeSummary = payload.sourceNodeId && sourceNode
+    ? (includeSourceNodeDetails ? await describeNodeAsync(sourceNode) : summarizeNode(sourceNode))
+    : undefined;
+  const selectionSummary = includeSelection
+    ? figma.currentPage.selection.map((node) => summarizeNode(node))
+    : undefined;
+  const variableSummary = variableSnapshot
+    ? { collections: variableSnapshot.collections, totalVariables: variableSnapshot.totalVariables }
+    : undefined;
 
-  const specLines = [
-    `Spec Page: ${page.name}`,
-    "",
-    `File: ${figma.root.name}`,
-    `Generated At: ${new Date().toISOString()}`,
-    `Source Page: ${figma.currentPage.name} (${figma.currentPage.id})`,
-    payload.sourceNodeId && sourceNode
-      ? `Source Node: ${JSON.stringify(
-          includeSourceNodeDetails ? await describeNodeAsync(sourceNode) : summarizeNode(sourceNode)
-        )}`
-      : null,
-    includeSelection
-      ? `Selection: ${JSON.stringify(figma.currentPage.selection.map((node) => summarizeNode(node)))}`
-      : null,
-    variableSnapshot
-      ? `Variables: ${JSON.stringify({ collections: variableSnapshot.collections, totalVariables: variableSnapshot.totalVariables }, null, 2)}`
-      : null,
-    tokenSnapshot ? `Design Tokens: ${JSON.stringify(tokenSnapshot, null, 2)}` : null
-  ].filter((line): line is string => Boolean(line));
+  const sections = buildSpecSections({
+    pageName: page.name,
+    fileName: figma.root.name,
+    generatedAt,
+    sourcePageName: figma.currentPage.name,
+    sourcePageId: figma.currentPage.id,
+    sourceNodeSummary,
+    selectionSummary,
+    variableSummary,
+    tokenSnapshot: tokenSnapshot ?? undefined
+  });
 
-  const text = figma.createText();
-  text.name = "Spec Content";
-  await loadFontsForNode(text);
-  text.characters = specLines.join("\n");
-  text.x = 64;
-  text.y = 64;
-  page.appendChild(text);
+  const contentFrame = figma.createFrame();
+  contentFrame.name = "Spec Content";
+  contentFrame.layoutMode = "VERTICAL";
+  contentFrame.primaryAxisSizingMode = "AUTO";
+  contentFrame.counterAxisSizingMode = "AUTO";
+  contentFrame.itemSpacing = 24;
+  contentFrame.paddingTop = 24;
+  contentFrame.paddingRight = 24;
+  contentFrame.paddingBottom = 24;
+  contentFrame.paddingLeft = 24;
+  contentFrame.fills = [];
+  contentFrame.strokes = [];
+  contentFrame.x = SPEC_CONTENT_X;
+  contentFrame.y = SPEC_CONTENT_Y;
+  page.appendChild(contentFrame);
+
+  const preparedFontNode = figma.createText();
+  await loadFontsForNode(preparedFontNode);
+  for (const section of sections) {
+    await appendSpecSectionNodes(contentFrame, section, preparedFontNode);
+  }
+  preparedFontNode.remove();
 
   return {
     page: {
       id: page.id,
       name: page.name
     },
-    contentNodeId: text.id,
+    contentNodeId: contentFrame.id,
     sourceSummary: sourceNode ? summarizeNode(sourceNode) : undefined
   };
 }

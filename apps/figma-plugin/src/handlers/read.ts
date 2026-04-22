@@ -23,6 +23,7 @@ import type {
   PageSummary,
   PingResult,
 } from "@figma-auto/protocol";
+import { DEFAULT_GET_NODE_TREE_DEPTH, MAX_GET_NODE_TREE_NODES } from "@figma-auto/protocol";
 
 import {
   hasAutoLayout,
@@ -48,6 +49,19 @@ interface DescribeNodeOptions {
   includePrototype?: boolean | undefined;
   includeTextContent?: boolean | undefined;
   includePaints?: boolean | undefined;
+}
+
+interface FindNodesContext {
+  payload: FindNodesPayload;
+  nameExactLower?: string | undefined;
+  nameContainsLower?: string | undefined;
+  textContainsLower?: string | undefined;
+}
+
+interface RankedFindNodeMatch {
+  match: FindNodeMatch;
+  score: number;
+  order: number;
 }
 
 function isMixed(value: unknown): boolean {
@@ -233,20 +247,30 @@ async function collectInstanceMetadata(node: BaseNode): Promise<InstanceMetadata
   return undefined;
 }
 
-function matchesName(node: BaseNode, payload: FindNodesPayload, reasons: string[]): boolean {
+function createFindNodesContext(payload: FindNodesPayload): FindNodesContext {
+  return {
+    payload,
+    nameExactLower: payload.nameExact?.toLocaleLowerCase(),
+    nameContainsLower: payload.nameContains?.toLocaleLowerCase(),
+    textContainsLower: payload.textContains?.toLocaleLowerCase()
+  };
+}
+
+function matchesName(node: BaseNode, context: FindNodesContext, reasons: string[]): boolean {
   const maybeNamedNode = node as BaseNode & { name?: string };
   const name = typeof maybeNamedNode.name === "string" ? maybeNamedNode.name : "";
   const normalizedName = name.toLocaleLowerCase();
+  const { nameExactLower, nameContainsLower } = context;
 
-  if (payload.nameExact) {
-    if (normalizedName !== payload.nameExact.toLocaleLowerCase()) {
+  if (nameExactLower) {
+    if (normalizedName !== nameExactLower) {
       return false;
     }
     reasons.push("nameExact");
   }
 
-  if (payload.nameContains) {
-    if (!normalizedName.includes(payload.nameContains.toLocaleLowerCase())) {
+  if (nameContainsLower) {
+    if (!normalizedName.includes(nameContainsLower)) {
       return false;
     }
     reasons.push("nameContains");
@@ -255,8 +279,8 @@ function matchesName(node: BaseNode, payload: FindNodesPayload, reasons: string[
   return true;
 }
 
-function matchesText(node: BaseNode, payload: FindNodesPayload, reasons: string[]): boolean {
-  if (!payload.textContains) {
+function matchesText(node: BaseNode, context: FindNodesContext, reasons: string[]): boolean {
+  if (!context.textContainsLower) {
     return true;
   }
 
@@ -264,7 +288,7 @@ function matchesText(node: BaseNode, payload: FindNodesPayload, reasons: string[
     return false;
   }
 
-  if (!node.characters.toLocaleLowerCase().includes(payload.textContains.toLocaleLowerCase())) {
+  if (!node.characters.toLocaleLowerCase().includes(context.textContainsLower)) {
     return false;
   }
 
@@ -272,11 +296,12 @@ function matchesText(node: BaseNode, payload: FindNodesPayload, reasons: string[
   return true;
 }
 
-function hasAnyFilter(payload: FindNodesPayload): boolean {
+function hasAnyFilter(context: FindNodesContext): boolean {
+  const { payload } = context;
   return Boolean(
-    payload.nameExact
-      || payload.nameContains
-      || payload.textContains
+    context.nameExactLower
+      || context.nameContainsLower
+      || context.textContainsLower
       || payload.type
       || payload.styleId
       || payload.variableId
@@ -287,7 +312,8 @@ function hasAnyFilter(payload: FindNodesPayload): boolean {
   );
 }
 
-async function getMatchReasons(node: BaseNode, payload: FindNodesPayload): Promise<string[]> {
+async function getMatchReasons(node: BaseNode, context: FindNodesContext): Promise<string[]> {
+  const { payload } = context;
   const reasons: string[] = [];
 
   if (payload.instanceOnly && node.type !== "INSTANCE") {
@@ -296,10 +322,13 @@ async function getMatchReasons(node: BaseNode, payload: FindNodesPayload): Promi
   if (payload.type && node.type !== payload.type) {
     return [];
   }
-  if (!matchesName(node, payload, reasons)) {
+  if (payload.type) {
+    reasons.push("type");
+  }
+  if (!matchesName(node, context, reasons)) {
     return [];
   }
-  if (!matchesText(node, payload, reasons)) {
+  if (!matchesText(node, context, reasons)) {
     return [];
   }
 
@@ -358,44 +387,287 @@ async function getMatchReasons(node: BaseNode, payload: FindNodesPayload): Promi
     reasons.push("instanceOnly");
   }
 
-  if (!hasAnyFilter(payload)) {
+  if (!hasAnyFilter(context)) {
     return [];
   }
 
   return reasons;
 }
 
+function canSkipHiddenBranch(node: BaseNode, payload: FindNodesPayload): boolean {
+  return isSceneNode(node) && !node.visible && payload.visible !== false && !(payload.includeHidden ?? false);
+}
+
+function isHiddenByAncestor(node: BaseNode, root: BaseNode, payload: FindNodesPayload): boolean {
+  if (payload.visible === false || (payload.includeHidden ?? false)) {
+    return false;
+  }
+
+  let current = node.parent;
+  while (current) {
+    if (current === root.parent) {
+      break;
+    }
+    if (current === root) {
+      return isSceneNode(current) && !current.visible;
+    }
+    if (isSceneNode(current) && !current.visible) {
+      return true;
+    }
+    current = current.parent;
+  }
+
+  return false;
+}
+
+function getFastPathCriteriaTypes(payload: FindNodesPayload): NodeType[] | null {
+  if (payload.instanceOnly) {
+    return ["INSTANCE"];
+  }
+
+  if (payload.type) {
+    return [payload.type as NodeType];
+  }
+
+  if (payload.textContains) {
+    return ["TEXT"];
+  }
+
+  if (payload.componentId) {
+    return ["INSTANCE", "COMPONENT", "COMPONENT_SET"];
+  }
+
+  return null;
+}
+
+function canUseFindNodesFastPath(root: BaseNode, payload: FindNodesPayload): boolean {
+  if (payload.depth !== undefined || !hasChildren(root)) {
+    return false;
+  }
+
+  return getFastPathCriteriaTypes(payload) !== null;
+}
+
+function getNodeName(node: BaseNode): string {
+  const maybeNamedNode = node as BaseNode & { name?: string };
+  return typeof maybeNamedNode.name === "string" ? maybeNamedNode.name : node.type;
+}
+
+function buildNodePath(node: BaseNode, root: BaseNode): string[] | undefined {
+  const path: string[] = [];
+  let current: BaseNode | null = node;
+
+  while (current) {
+    path.push(getNodeName(current));
+    if (current === root) {
+      return path.reverse();
+    }
+    current = current.parent;
+  }
+
+  return undefined;
+}
+
+function getNodeDepthRelativeToRoot(node: BaseNode, root: BaseNode): number {
+  let depth = 0;
+  let current: BaseNode | null = node;
+
+  while (current && current !== root) {
+    current = current.parent;
+    depth += 1;
+  }
+
+  return current === root ? depth : depth + 2;
+}
+
+function scoreFindNodeMatch(node: BaseNode, context: FindNodesContext, reasons: string[], root: BaseNode): number {
+  let score = 0;
+  const lowerName = getNodeName(node).toLocaleLowerCase();
+  const depth = getNodeDepthRelativeToRoot(node, root);
+
+  if (context.nameExactLower && lowerName === context.nameExactLower) {
+    score += 100;
+  }
+
+  if (context.nameContainsLower) {
+    if (lowerName === context.nameContainsLower) {
+      score += 70;
+    } else if (lowerName.startsWith(context.nameContainsLower)) {
+      score += 55;
+    } else if (lowerName.includes(context.nameContainsLower)) {
+      score += 40;
+    }
+  }
+
+  if (context.textContainsLower && isTextNode(node)) {
+    const lowerText = node.characters.toLocaleLowerCase();
+    if (lowerText === context.textContainsLower) {
+      score += 75;
+    } else if (lowerText.startsWith(context.textContainsLower)) {
+      score += 55;
+    } else if (lowerText.includes(context.textContainsLower)) {
+      score += 35;
+    }
+  }
+
+  for (const reason of reasons) {
+    switch (reason) {
+      case "type":
+        score += 18;
+        break;
+      case "instanceOnly":
+        score += 16;
+        break;
+      case "componentId":
+        score += 26;
+        break;
+      case "styleId":
+      case "variableId":
+        score += 20;
+        break;
+      case "visible":
+        score += 10;
+        break;
+      case "locked":
+        score += 6;
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (node.parent === root) {
+    score += 8;
+  }
+  score -= Math.min(depth, 6) * 2;
+
+  if (isSceneNode(node) && node.visible && context.payload.visible === undefined && !(context.payload.includeHidden ?? false)) {
+    score += 2;
+  }
+
+  return Math.max(score, reasons.length * 10);
+}
+
+function classifyFindNodeConfidence(score: number): "high" | "medium" | "low" {
+  if (score >= 90) {
+    return "high";
+  }
+  if (score >= 45) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function compareRankedMatches(left: RankedFindNodeMatch, right: RankedFindNodeMatch): number {
+  if (right.score !== left.score) {
+    return right.score - left.score;
+  }
+
+  return left.order - right.order;
+}
+
+function addRankedMatch(
+  rankedMatches: RankedFindNodeMatch[],
+  node: BaseNode,
+  reasons: string[],
+  context: FindNodesContext,
+  root: BaseNode,
+  limit: number,
+  order: number
+): void {
+  const score = scoreFindNodeMatch(node, context, reasons, root);
+  const rankedMatch: RankedFindNodeMatch = {
+    score,
+    order,
+    match: {
+      ...summarizeNode(node),
+      matchedBy: reasons,
+      confidence: classifyFindNodeConfidence(score),
+      confidenceScore: score,
+      path: buildNodePath(node, root)
+    }
+  };
+
+  if (rankedMatches.length < limit) {
+    rankedMatches.push(rankedMatch);
+    rankedMatches.sort(compareRankedMatches);
+    return;
+  }
+
+  const worst = rankedMatches[rankedMatches.length - 1];
+  if (!worst) {
+    return;
+  }
+  if (compareRankedMatches(rankedMatch, worst) >= 0) {
+    return;
+  }
+
+  rankedMatches[rankedMatches.length - 1] = rankedMatch;
+  rankedMatches.sort(compareRankedMatches);
+}
+
+async function collectMatchesFromCandidates(
+  root: BaseNode,
+  candidates: BaseNode[],
+  context: FindNodesContext,
+  limit: number,
+  rankedMatches: RankedFindNodeMatch[],
+  counts: { totalMatches: number; stoppedEarly: boolean; visitedMatches: number }
+): Promise<void> {
+  for (const node of candidates) {
+    if (counts.stoppedEarly) {
+      return;
+    }
+
+    if (canSkipHiddenBranch(node, context.payload) || isHiddenByAncestor(node, root, context.payload)) {
+      continue;
+    }
+
+    const reasons = await getMatchReasons(node, context);
+    if (reasons.length === 0) {
+      continue;
+    }
+
+    counts.totalMatches += 1;
+    counts.visitedMatches += 1;
+    if (limit > 0) {
+      addRankedMatch(rankedMatches, node, reasons, context, root, limit, counts.visitedMatches);
+      if ((context.payload.stopAtLimit ?? false) && counts.totalMatches >= limit) {
+        counts.stoppedEarly = true;
+        return;
+      }
+    }
+  }
+}
+
 async function collectMatchingNodes(
   node: BaseNode,
-  payload: FindNodesPayload,
+  context: FindNodesContext,
   limit: number,
-  matches: FindNodeMatch[],
-  counts: { totalMatches: number; stoppedEarly: boolean },
+  rankedMatches: RankedFindNodeMatch[],
+  counts: { totalMatches: number; stoppedEarly: boolean; visitedMatches: number },
+  root: BaseNode,
   depth: number | undefined
 ): Promise<void> {
   if (counts.stoppedEarly) {
     return;
   }
 
-  if (isSceneNode(node) && !node.visible && payload.visible !== false && !(payload.includeHidden ?? false)) {
+  if (canSkipHiddenBranch(node, context.payload)) {
     return;
   }
 
-  const reasons = await getMatchReasons(node, payload);
+  const reasons = await getMatchReasons(node, context);
   if (reasons.length > 0) {
     counts.totalMatches += 1;
-    if (matches.length < limit) {
-      matches.push({
-        ...summarizeNode(node),
-        matchedBy: reasons
-      });
-      if ((payload.stopAtLimit ?? false) && matches.length >= limit) {
+    counts.visitedMatches += 1;
+    if (limit > 0) {
+      addRankedMatch(rankedMatches, node, reasons, context, root, limit, counts.visitedMatches);
+      if ((context.payload.stopAtLimit ?? false) && counts.totalMatches >= limit) {
         counts.stoppedEarly = true;
         return;
       }
-    } else if (payload.stopAtLimit ?? false) {
-      counts.stoppedEarly = true;
-      return;
     }
   }
 
@@ -405,7 +677,7 @@ async function collectMatchingNodes(
 
   const nextDepth = depth === undefined ? undefined : depth - 1;
   for (const child of node.children) {
-    await collectMatchingNodes(child, payload, limit, matches, counts, nextDepth);
+    await collectMatchingNodes(child, context, limit, rankedMatches, counts, root, nextDepth);
     if (counts.stoppedEarly) {
       return;
     }
@@ -574,16 +846,38 @@ async function buildNodeTree(
   node: BaseNode,
   depth: number | undefined,
   options: DescribeNodeOptions,
-  summaryOnly: boolean
+  summaryOnly: boolean,
+  stats: { nodeCount: number; truncated: boolean }
 ): Promise<NodeTreeNode> {
+  stats.nodeCount += 1;
   const snapshot: NodeTreeNode = summaryOnly
     ? { ...summarizeNode(node) }
     : { ...(await describeNodeAsync(node, options)) };
-  if (hasChildren(node) && depth !== 0) {
-    const nextDepth = depth === undefined ? undefined : depth - 1;
-    snapshot.children = await Promise.all(
-      node.children.map((child) => buildNodeTree(child, nextDepth, options, summaryOnly))
-    );
+
+  if (!hasChildren(node) || depth === 0) {
+    return snapshot;
+  }
+
+  if (stats.nodeCount >= MAX_GET_NODE_TREE_NODES) {
+    if (node.children.length > 0) {
+      stats.truncated = true;
+    }
+    return snapshot;
+  }
+
+  const nextDepth = depth === undefined ? undefined : depth - 1;
+  const children: NodeTreeNode[] = [];
+  for (const child of node.children) {
+    if (stats.nodeCount >= MAX_GET_NODE_TREE_NODES) {
+      stats.truncated = true;
+      break;
+    }
+
+    children.push(await buildNodeTree(child, nextDepth, options, summaryOnly, stats));
+  }
+
+  if (children.length > 0) {
+    snapshot.children = children;
   }
 
   return snapshot;
@@ -635,25 +929,67 @@ export async function getNode(payload: GetNodePayload): Promise<GetNodeResult> {
 
 export async function getNodeTree(payload: GetNodeTreePayload): Promise<GetNodeTreeResult> {
   const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
+  const appliedDepth = payload.depth ?? DEFAULT_GET_NODE_TREE_DEPTH;
+  const summaryOnly = payload.summaryOnly ?? true;
+  const stats = {
+    nodeCount: 0,
+    truncated: false
+  };
+  const options: DescribeNodeOptions = summaryOnly
+    ? {}
+    : {
+        includeDesign: payload.includeDesign ?? false,
+        includePrototype: payload.includePrototype ?? false,
+        includeTextContent: payload.includeTextContent ?? false,
+        includePaints: payload.includePaints ?? false
+      };
+
   return {
-    root: await buildNodeTree(root, payload.depth, payload, payload.summaryOnly ?? false),
-    requestedDepth: payload.depth
+    root: await buildNodeTree(root, appliedDepth, options, summaryOnly, stats),
+    requestedDepth: payload.depth,
+    appliedDepth,
+    nodeCount: stats.nodeCount,
+    truncated: stats.truncated
   };
 }
 
 export async function findNodes(payload: FindNodesPayload): Promise<FindNodesResult> {
   const root = payload.nodeId ? await requireBaseNode(payload.nodeId) : figma.currentPage;
   const limit = payload.limit ?? 50;
-  const matches: FindNodeMatch[] = [];
-  const counts = { totalMatches: 0, stoppedEarly: false };
+  const rankedMatches: RankedFindNodeMatch[] = [];
+  const counts = { totalMatches: 0, stoppedEarly: false, visitedMatches: 0 };
+  const context = createFindNodesContext(payload);
 
-  await collectMatchingNodes(root, payload, limit, matches, counts, payload.depth);
+  if ((payload.instanceOnly && payload.type && payload.type !== "INSTANCE")
+    || (payload.textContains && payload.type && payload.type !== "TEXT")) {
+    return {
+      root: summarizeNode(root),
+      matches: [],
+      totalMatches: 0,
+      totalMatchesExact: true,
+      truncated: false
+    };
+  }
+
+  if (canUseFindNodesFastPath(root, payload)) {
+    const candidateTypes = getFastPathCriteriaTypes(payload);
+    const candidates: BaseNode[] = [];
+    if (!canSkipHiddenBranch(root, payload)) {
+      candidates.push(root);
+    }
+    if (candidateTypes && hasChildren(root)) {
+      candidates.push(...root.findAllWithCriteria({ types: candidateTypes }));
+    }
+    await collectMatchesFromCandidates(root, candidates, context, limit, rankedMatches, counts);
+  } else {
+    await collectMatchingNodes(root, context, limit, rankedMatches, counts, root, payload.depth);
+  }
 
   return {
     root: summarizeNode(root),
-    matches,
+    matches: rankedMatches.map((entry) => entry.match),
     totalMatches: counts.totalMatches,
     totalMatchesExact: !counts.stoppedEarly,
-    truncated: counts.stoppedEarly || counts.totalMatches > matches.length
+    truncated: counts.stoppedEarly || counts.totalMatches > rankedMatches.length
   };
 }

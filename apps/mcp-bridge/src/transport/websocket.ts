@@ -234,16 +234,18 @@ export class PluginWebSocketBridge {
       throw new ProtocolFailure("validation_failed", "Session registration payload does not match the envelope");
     }
 
-    const previousSession = this.sessionStore.getActive();
-    this.sessionStore.register(registration, socket);
-    await this.bridgeLogger.info("session_registered", {
-      sessionId: registration.sessionId,
-      pluginInstanceId: registration.pluginInstanceId,
-      pageId: registration.pageId,
-      editorType: registration.editorType,
-      replacedSessionId:
-        previousSession && previousSession.socket !== socket ? previousSession.context.sessionId : undefined
-    });
+    const registrationResult = this.sessionStore.register(registration, socket);
+    if (registrationResult.changed) {
+      await this.bridgeLogger.info("session_registered", {
+        sessionId: registration.sessionId,
+        pluginInstanceId: registration.pluginInstanceId,
+        pageId: registration.pageId,
+        editorType: registration.editorType,
+        ...(registrationResult.replacedSessionId
+          ? { replacedSessionId: registrationResult.replacedSessionId }
+          : {})
+      });
+    }
     socket.send(JSON.stringify(successResponse(request.requestId, { registered: true })));
   }
 

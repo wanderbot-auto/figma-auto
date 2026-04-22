@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bridge Vault Refinement</title>
+  <style>
+    :root {
+      --bg: #efe6da;
+      --panel: rgba(255, 250, 244, 0.84);
+      --panel-border: rgba(66, 44, 25, 0.12);
+      --ink: #1d1611;
+      --muted: #77695d;
+      --accent: #da6d3c;
+      --accent-soft: rgba(218, 109, 60, 0.14);
+      --deep: #15110e;
+      --light: #fff7ef;
+      --dark-bar: linear-gradient(180deg, #2a231d 0%, #16120f 100%);
+      --light-bar: linear-gradient(180deg, #fbf7f1 0%, #ece2d5 100%);
+      --shadow: 0 26px 70px rgba(54, 35, 18, 0.14);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(218, 109, 60, 0.15), transparent 26%),
+        radial-gradient(circle at 88% 10%, rgba(99, 138, 126, 0.1), transparent 24%),
+        linear-gradient(180deg, #f7f3ed 0%, var(--bg) 100%);
+    }
+
+    .page {
+      width: min(1220px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 44px 0 56px;
+    }
+
+    .hero {
+      padding: 4px 4px 28px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 18px 0 12px;
+      font-size: clamp(34px, 6vw, 62px);
+      line-height: 0.96;
+      letter-spacing: -0.055em;
+    }
+
+    .intro {
+      max-width: 840px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.7;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 18px;
+      margin: 26px 0 22px;
+    }
+
+    .summary-card,
+    .direction-card,
+    .card,
+    .footer {
+      border-radius: var(--radius-xl);
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .summary-card,
+    .direction-card,
+    .footer {
+      padding: 22px 24px;
+    }
+
+    .summary-card h2,
+    .direction-card h2,
+    .footer h3 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+    }
+
+    .summary-card p,
+    .direction-card p,
+    .footer p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.68);
+      border: 1px solid rgba(66, 44, 25, 0.08);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .chip-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--deep);
+      opacity: 0.88;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      overflow: hidden;
+    }
+
+    .card-head {
+      padding: 22px 22px 16px;
+      border-bottom: 1px solid rgba(66, 44, 25, 0.08);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 34px;
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--deep);
+      color: var(--light);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .card h2 {
+      margin: 14px 0 8px;
+      font-size: 28px;
+      line-height: 1.02;
+      letter-spacing: -0.045em;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .body {
+      display: grid;
+      gap: 14px;
+      padding: 18px 18px 20px;
+    }
+
+    .preview {
+      overflow: hidden;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(66, 44, 25, 0.1);
+      background: rgba(255,255,255,0.48);
+    }
+
+    .menu-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 54px;
+      padding: 10px 14px;
+    }
+
+    .menu-strip.dark {
+      background: var(--dark-bar);
+      color: rgba(255,255,255,0.85);
+    }
+
+    .menu-strip.light {
+      background: var(--light-bar);
+      color: rgba(24,18,13,0.78);
+      border-top: 1px solid rgba(66,44,25,0.07);
+    }
+
+    .left-cluster {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .menu-copy {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      opacity: 0.9;
+    }
+
+    .scales {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+      background: rgba(255, 247, 239, 0.72);
+    }
+
+    .scale {
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      padding: 12px 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(66, 44, 25, 0.08);
+      background: rgba(255,255,255,0.74);
+    }
+
+    .scale-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .notes {
+      display: grid;
+      gap: 8px;
+      padding: 2px 2px 0;
+    }
+
+    .note {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .note strong {
+      min-width: 48px;
+      color: var(--accent);
+      font-weight: 800;
+    }
+
+    .footer {
+      margin-top: 28px;
+      background: rgba(21, 17, 14, 0.92);
+      border-color: rgba(255,255,255,0.06);
+      color: rgba(255,247,239,0.92);
+    }
+
+    .footer p {
+      color: rgba(255,247,239,0.78);
+    }
+
+    @media (max-width: 980px) {
+      .summary,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">Bridge Vault Refinement</div>
+      <h1>只保留一个方向：继续打磨 Bridge Vault</h1>
+      <p class="intro">
+        现在不再做多路线发散，而是围绕 <strong>Bridge Vault</strong> 单点深化。
+        核心原则是：用实心体块表达 <strong>Codx / Bridge / Figma</strong> 的连接关系，同时给符号加入更鲜明的气质、印记感和品牌情绪，让它不只是一个结构件。
+      </p>
+    </section>
+
+    <section class="summary">
+      <div class="summary-card">
+        <h2>保留的核心语义</h2>
+        <p>
+          中间是一个实体的 bridge 核心舱体，左侧与右侧是两个接入口，顶部是控制或调度入口。
+          它不再像“几条线把点连起来”，而是像一个真的在承载连接关系的结构件。
+        </p>
+        <div class="chip-row">
+          <span class="chip"><i class="chip-dot"></i>Codx Input</span>
+          <span class="chip"><i class="chip-dot"></i>Bridge Core</span>
+          <span class="chip"><i class="chip-dot"></i>Figma Output</span>
+          <span class="chip"><i class="chip-dot"></i>Solid Mass</span>
+          <span class="chip"><i class="chip-dot"></i>Negative Cut</span>
+        </div>
+      </div>
+
+      <div class="direction-card">
+        <h2>这次细化目标</h2>
+        <p>
+          不改方向，只强化气质：让 bridge 的实体感更强、轮廓更像品牌印记、负形更像被刻出来的识别切口，最终收敛到一个真正像 logo 的状态栏符号。
+        </p>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <header class="card-head">
+          <span class="badge">A</span>
+          <h2>Bridge Vault Core</h2>
+          <p>最接近当前主方向：上方控制舱 + 中部主桥体 + 左右接入端口，用中心负形竖槽表达数据穿透。</p>
+        </header>
+        <div class="body">
+          <div class="preview">
+            <div class="menu-strip dark">
+              <div class="left-cluster">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-label="Bridge Vault Core dark">
+                  <rect x="7.1" y="2.2" width="3.8" height="3.55" rx="1.65" fill="#fff"/>
+                  <rect x="5.2" y="5.2" width="7.6" height="7.6" rx="2.9" fill="#fff"/>
+                  <rect x="1.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#fff"/>
+                  <rect x="10.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#fff"/>
+                  <rect x="8.05" y="6.75" width="1.9" height="4.45" rx="0.95" fill="#1a1512"/>
+                </svg>
+                <span class="menu-copy">Figma Auto</span>
+              </div>
+              <span class="menu-copy">3</span>
+            </div>
+            <div class="menu-strip light">
+              <div class="left-cluster">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-label="Bridge Vault Core light">
+                  <rect x="7.1" y="2.2" width="3.8" height="3.55" rx="1.65" fill="#15110e"/>
+                  <rect x="5.2" y="5.2" width="7.6" height="7.6" rx="2.9" fill="#15110e"/>
+                  <rect x="1.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                  <rect x="10.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                  <rect x="8.05" y="6.75" width="1.9" height="4.45" rx="0.95" fill="#efe6da"/>
+                </svg>
+                <span class="menu-copy">Figma Auto</span>
+              </div>
+              <span class="menu-copy">3</span>
+            </div>
+          </div>
+
+          <div class="scales">
+            <div class="scale">
+              <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true">
+                <rect x="7.1" y="2.2" width="3.8" height="3.55" rx="1.65" fill="#15110e"/>
+                <rect x="5.2" y="5.2" width="7.6" height="7.6" rx="2.9" fill="#15110e"/>
+                <rect x="1.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                <rect x="10.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                <rect x="8.05" y="6.75" width="1.9" height="4.45" rx="0.95" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">14px</span>
+            </div>
+            <div class="scale">
+              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                <rect x="7.1" y="2.2" width="3.8" height="3.55" rx="1.65" fill="#15110e"/>
+                <rect x="5.2" y="5.2" width="7.6" height="7.6" rx="2.9" fill="#15110e"/>
+                <rect x="1.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                <rect x="10.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                <rect x="8.05" y="6.75" width="1.9" height="4.45" rx="0.95" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">18px</span>
+            </div>
+            <div class="scale">
+              <svg width="24" height="24" viewBox="0 0 18 18" aria-hidden="true">
+                <rect x="7.1" y="2.2" width="3.8" height="3.55" rx="1.65" fill="#15110e"/>
+                <rect x="5.2" y="5.2" width="7.6" height="7.6" rx="2.9" fill="#15110e"/>
+                <rect x="1.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                <rect x="10.9" y="7.05" width="5.2" height="3.95" rx="1.95" fill="#15110e"/>
+                <rect x="8.05" y="6.75" width="1.9" height="4.45" rx="0.95" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">24px</span>
+            </div>
+          </div>
+
+          <div class="notes">
+            <div class="note"><strong>特点</strong><span>最平衡，也最容易直接落到菜单栏使用。</span></div>
+            <div class="note"><strong>优势</strong><span>结构很稳，三端关系清楚，负形切口简单但有效。</span></div>
+            <div class="note"><strong>风险</strong><span>偏产品结构件，品牌情绪还可以再强一点。</span></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <span class="badge">B</span>
+          <h2>Bridge Vault Beacon</h2>
+          <p>把桥体做得更像一个有存在感的信标：实体更紧凑，中央切口从门洞升级成带锋芒的菱形印记。</p>
+        </header>
+        <div class="body">
+          <div class="preview">
+            <div class="menu-strip dark">
+              <div class="left-cluster">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-label="Bridge Vault Beacon dark">
+                  <rect x="7.25" y="2.2" width="3.5" height="3.2" rx="1.5" fill="#fff"/>
+                  <path d="M5.1 5.1h7.8c1.7 0 3 1.3 3 3v1.9c0 1.65-1.3 2.95-2.95 2.95H5.05C3.4 12.95 2.1 11.65 2.1 10V8.1c0-1.7 1.3-3 3-3Z" fill="#fff"/>
+                  <path d="M9 6.6 10.55 8.05 9 11.25 7.45 8.05Z" fill="#1a1512"/>
+                </svg>
+                <span class="menu-copy">Figma Auto</span>
+              </div>
+              <span class="menu-copy">3</span>
+            </div>
+            <div class="menu-strip light">
+              <div class="left-cluster">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-label="Bridge Vault Beacon light">
+                  <rect x="7.25" y="2.2" width="3.5" height="3.2" rx="1.5" fill="#15110e"/>
+                  <path d="M5.1 5.1h7.8c1.7 0 3 1.3 3 3v1.9c0 1.65-1.3 2.95-2.95 2.95H5.05C3.4 12.95 2.1 11.65 2.1 10V8.1c0-1.7 1.3-3 3-3Z" fill="#15110e"/>
+                  <path d="M9 6.6 10.55 8.05 9 11.25 7.45 8.05Z" fill="#efe6da"/>
+                </svg>
+                <span class="menu-copy">Figma Auto</span>
+              </div>
+              <span class="menu-copy">3</span>
+            </div>
+          </div>
+
+          <div class="scales">
+            <div class="scale">
+              <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true">
+                <rect x="7.25" y="2.2" width="3.5" height="3.2" rx="1.5" fill="#15110e"/>
+                <path d="M5.1 5.1h7.8c1.7 0 3 1.3 3 3v1.9c0 1.65-1.3 2.95-2.95 2.95H5.05C3.4 12.95 2.1 11.65 2.1 10V8.1c0-1.7 1.3-3 3-3Z" fill="#15110e"/>
+                <path d="M9 6.6 10.55 8.05 9 11.25 7.45 8.05Z" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">14px</span>
+            </div>
+            <div class="scale">
+              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                <rect x="7.25" y="2.2" width="3.5" height="3.2" rx="1.5" fill="#15110e"/>
+                <path d="M5.1 5.1h7.8c1.7 0 3 1.3 3 3v1.9c0 1.65-1.3 2.95-2.95 2.95H5.05C3.4 12.95 2.1 11.65 2.1 10V8.1c0-1.7 1.3-3 3-3Z" fill="#15110e"/>
+                <path d="M9 6.6 10.55 8.05 9 11.25 7.45 8.05Z" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">18px</span>
+            </div>
+            <div class="scale">
+              <svg width="24" height="24" viewBox="0 0 18 18" aria-hidden="true">
+                <rect x="7.25" y="2.2" width="3.5" height="3.2" rx="1.5" fill="#15110e"/>
+                <path d="M5.1 5.1h7.8c1.7 0 3 1.3 3 3v1.9c0 1.65-1.3 2.95-2.95 2.95H5.05C3.4 12.95 2.1 11.65 2.1 10V8.1c0-1.7 1.3-3 3-3Z" fill="#15110e"/>
+                <path d="M9 6.6 10.55 8.05 9 11.25 7.45 8.05Z" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">24px</span>
+            </div>
+          </div>
+
+          <div class="notes">
+            <div class="note"><strong>特点</strong><span>中央切口更像“品牌印记”，比 Gate 更有情绪，也更像一个被记住的符号。</span></div>
+            <div class="note"><strong>优势</strong><span>整体更紧凑，像一个在菜单栏里发信号的实体信标，气质更鲜明。</span></div>
+            <div class="note"><strong>风险</strong><span>菱形负形更有个性，但也更需要精细控制大小，避免 14px 时过尖。</span></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <span class="badge">C</span>
+          <h2>Bridge Vault Sigil</h2>
+          <p>把桥体进一步推进成“印章式轮廓”：肩部更宽、上冠更短，中央负形像被压进实体里的专属符号。</p>
+        </header>
+        <div class="body">
+          <div class="preview">
+            <div class="menu-strip dark">
+              <div class="left-cluster">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-label="Bridge Vault Sigil dark">
+                  <path d="M7.15 2.35h3.7c1 0 1.8.8 1.8 1.8v.95h.55c1.5 0 2.7 1.2 2.7 2.7v2.05c0 1.65-1.25 2.95-2.95 2.95H5c-1.7 0-2.95-1.3-2.95-2.95V7.8c0-1.5 1.2-2.7 2.7-2.7h.55v-.95c0-1 .8-1.8 1.85-1.8Z" fill="#fff"/>
+                  <rect x="1.85" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#fff"/>
+                  <rect x="12.95" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#fff"/>
+                  <path d="M9 6.4c.9 0 1.6.7 1.6 1.6v.6h-.9v2.65H8.3V8.6h-.9V8c0-.9.7-1.6 1.6-1.6Z" fill="#1a1512"/>
+                </svg>
+                <span class="menu-copy">Figma Auto</span>
+              </div>
+              <span class="menu-copy">3</span>
+            </div>
+            <div class="menu-strip light">
+              <div class="left-cluster">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-label="Bridge Vault Sigil light">
+                  <path d="M7.15 2.35h3.7c1 0 1.8.8 1.8 1.8v.95h.55c1.5 0 2.7 1.2 2.7 2.7v2.05c0 1.65-1.25 2.95-2.95 2.95H5c-1.7 0-2.95-1.3-2.95-2.95V7.8c0-1.5 1.2-2.7 2.7-2.7h.55v-.95c0-1 .8-1.8 1.85-1.8Z" fill="#15110e"/>
+                  <rect x="1.85" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                  <rect x="12.95" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                  <path d="M9 6.4c.9 0 1.6.7 1.6 1.6v.6h-.9v2.65H8.3V8.6h-.9V8c0-.9.7-1.6 1.6-1.6Z" fill="#efe6da"/>
+                </svg>
+                <span class="menu-copy">Figma Auto</span>
+              </div>
+              <span class="menu-copy">3</span>
+            </div>
+          </div>
+
+          <div class="scales">
+            <div class="scale">
+              <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M7.15 2.35h3.7c1 0 1.8.8 1.8 1.8v.95h.55c1.5 0 2.7 1.2 2.7 2.7v2.05c0 1.65-1.25 2.95-2.95 2.95H5c-1.7 0-2.95-1.3-2.95-2.95V7.8c0-1.5 1.2-2.7 2.7-2.7h.55v-.95c0-1 .8-1.8 1.85-1.8Z" fill="#15110e"/>
+                <rect x="1.85" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                <rect x="12.95" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                <path d="M9 6.4c.9 0 1.6.7 1.6 1.6v.6h-.9v2.65H8.3V8.6h-.9V8c0-.9.7-1.6 1.6-1.6Z" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">14px</span>
+            </div>
+            <div class="scale">
+              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M7.15 2.35h3.7c1 0 1.8.8 1.8 1.8v.95h.55c1.5 0 2.7 1.2 2.7 2.7v2.05c0 1.65-1.25 2.95-2.95 2.95H5c-1.7 0-2.95-1.3-2.95-2.95V7.8c0-1.5 1.2-2.7 2.7-2.7h.55v-.95c0-1 .8-1.8 1.85-1.8Z" fill="#15110e"/>
+                <rect x="1.85" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                <rect x="12.95" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                <path d="M9 6.4c.9 0 1.6.7 1.6 1.6v.6h-.9v2.65H8.3V8.6h-.9V8c0-.9.7-1.6 1.6-1.6Z" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">18px</span>
+            </div>
+            <div class="scale">
+              <svg width="24" height="24" viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M7.15 2.35h3.7c1 0 1.8.8 1.8 1.8v.95h.55c1.5 0 2.7 1.2 2.7 2.7v2.05c0 1.65-1.25 2.95-2.95 2.95H5c-1.7 0-2.95-1.3-2.95-2.95V7.8c0-1.5 1.2-2.7 2.7-2.7h.55v-.95c0-1 .8-1.8 1.85-1.8Z" fill="#15110e"/>
+                <rect x="1.85" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                <rect x="12.95" y="7.1" width="3.2" height="3.65" rx="1.55" fill="#15110e"/>
+                <path d="M9 6.4c.9 0 1.6.7 1.6 1.6v.6h-.9v2.65H8.3V8.6h-.9V8c0-.9.7-1.6 1.6-1.6Z" fill="#f4efe7"/>
+              </svg>
+              <span class="scale-label">24px</span>
+            </div>
+          </div>
+
+          <div class="notes">
+            <div class="note"><strong>特点</strong><span>更像一个被压印出来的品牌 sigil，而不是普通功能图标。</span></div>
+            <div class="note"><strong>优势</strong><span>肩部轮廓更有态度，中央负形也更像专属字印，品牌情绪最强。</span></div>
+            <div class="note"><strong>风险</strong><span>轮廓情绪更足，也意味着后续像素级微调会更关键，不能让细节在 16px 崩掉。</span></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="footer">
+      <h3>当前建议</h3>
+      <p>
+        如果目标是“尽快落地到状态栏且足够好看”，优先继续打磨 <strong>Bridge Vault Core</strong>；
+        如果想要更强的识别度，我建议从 <strong>Bridge Vault Beacon</strong> 往前推进；
+        如果你要的是更像正式品牌 logo 的方向，再保留 <strong>Bridge Vault Sigil</strong> 作为高辨识版本。
+      </p>
+    </section>
+  </main>
+</body>
+</html>

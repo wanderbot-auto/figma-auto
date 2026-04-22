@@ -1,5 +1,6 @@
 import type {
   BatchEditItemResult,
+  BatchEditItemRisk,
   BatchEditV2Operation,
   BatchEditV2Payload,
   BatchEditV2Result,
@@ -23,6 +24,8 @@ import type {
 } from "@figma-auto/protocol";
 
 import {
+  hasAutoLayout,
+  hasAutoLayoutChild,
   hasChildren,
   hasFills,
   isInstanceNode,
@@ -53,14 +56,27 @@ const SYNTHETIC_PREFIX = "__batch_v2_dry_run__";
 interface BatchContext {
   resultsByOpId: Map<string, BatchEditItemResult>;
   syntheticKinds: Map<string, SyntheticNodeKind>;
+  syntheticAliases: Map<string, string>;
+  shadowParentIds: Map<string, string | null>;
+  deletedNodeIds: Set<string>;
 }
 
-function compactBatchItemResult(result: BatchEditItemResult): BatchEditItemResult {
+type BatchEditItemResultWithRisks = BatchEditItemResult & {
+  risks?: BatchEditItemRisk[] | undefined;
+};
+
+interface DryRunRiskContext {
+  operation: BatchEditV2Operation;
+  result: BatchEditItemResultWithRisks;
+  context: BatchContext;
+}
+
+function compactBatchItemResult(result: BatchEditItemResultWithRisks): BatchEditItemResultWithRisks {
   if (!result.ok) {
     return result;
   }
 
-  const compact: BatchEditItemResult = {
+  const compact: BatchEditItemResultWithRisks = {
     index: result.index,
     op: result.op,
     ok: result.ok,
@@ -68,6 +84,7 @@ function compactBatchItemResult(result: BatchEditItemResult): BatchEditItemResul
     ...(result.opId !== undefined ? { opId: result.opId } : {}),
     ...(result.createdNodeId !== undefined ? { createdNodeId: result.createdNodeId } : {}),
     ...(result.deletedNodeId !== undefined ? { deletedNodeId: result.deletedNodeId } : {}),
+    ...(result.risks !== undefined ? { risks: result.risks } : {}),
     ...(result.targetSummary !== undefined ? { targetSummary: result.targetSummary } : {}),
     ...(result.updatedNodeId !== undefined ? { updatedNodeId: result.updatedNodeId } : {})
   };
@@ -125,7 +142,7 @@ function mapBatchErrorCode(message: string): BatchEditItemResult["error"] extend
     ? TCode
     : never
   : never {
-  if (message.includes("not found")) {
+  if (message.includes("not found") || message.includes("removed earlier in this dry run")) {
     return "node_not_found";
   }
   if (
@@ -182,6 +199,22 @@ function registerSyntheticKind(
   }
 }
 
+function canonicalizeNodeId(nodeId: string, context: BatchContext): string {
+  let current = nodeId;
+  const visited = new Set<string>();
+
+  while (!visited.has(current)) {
+    visited.add(current);
+    const aliased = context.syntheticAliases.get(current);
+    if (!aliased || aliased === current) {
+      return current;
+    }
+    current = aliased;
+  }
+
+  return current;
+}
+
 function resolveId(value: BatchResolvableId, context: BatchContext, label: string): string {
   if (!isReference(value)) {
     return value;
@@ -229,8 +262,225 @@ async function getConcreteNode(nodeId: string): Promise<BaseNode | null> {
   return figma.getNodeByIdAsync(nodeId);
 }
 
-async function requireChildContainer(nodeId: string): Promise<void> {
-  const node = await getConcreteNode(nodeId);
+async function wasRemovedInDryRun(nodeId: string, context: BatchContext): Promise<boolean> {
+  let currentId: string | null = canonicalizeNodeId(nodeId, context);
+  const visited = new Set<string>();
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    if (context.deletedNodeIds.has(currentId)) {
+      return true;
+    }
+
+    const shadowParentId = context.shadowParentIds.get(currentId);
+    if (shadowParentId !== undefined) {
+      currentId = shadowParentId;
+      continue;
+    }
+
+    if (isSyntheticId(currentId)) {
+      return false;
+    }
+
+    const node = await figma.getNodeByIdAsync(currentId);
+    currentId = node?.parent?.id ?? null;
+  }
+
+  return false;
+}
+
+async function assertNodeAvailable(nodeId: string, context: BatchContext): Promise<void> {
+  if (await wasRemovedInDryRun(nodeId, context)) {
+    throw new Error(`Node ${nodeId} was removed earlier in this dry run and would not be found by later ops`);
+  }
+}
+
+async function resolveCurrentParentId(nodeId: string, context: BatchContext): Promise<string | null> {
+  const canonicalNodeId = canonicalizeNodeId(nodeId, context);
+  const shadowParentId = context.shadowParentIds.get(canonicalNodeId);
+  if (shadowParentId !== undefined) {
+    return shadowParentId;
+  }
+
+  const node = await getConcreteNode(canonicalNodeId);
+  return node?.parent?.id ?? null;
+}
+
+function hasActiveAutoLayout(node: BaseNode | null | undefined): boolean {
+  return Boolean(node && hasAutoLayout(node) && node.layoutMode !== "NONE");
+}
+
+function addRisk(
+  risks: BatchEditItemRisk[],
+  code: BatchEditItemRisk["code"],
+  severity: BatchEditItemRisk["severity"],
+  message: string,
+  relatedNodeId?: string
+): void {
+  if (risks.some((risk) => risk.code === code && risk.relatedNodeId === relatedNodeId && risk.message === message)) {
+    return;
+  }
+
+  risks.push({
+    code,
+    severity,
+    message,
+    ...(relatedNodeId ? { relatedNodeId } : {})
+  });
+}
+
+async function analyzeDryRunRisks({
+  operation,
+  result,
+  context
+}: DryRunRiskContext): Promise<BatchEditItemRisk[] | undefined> {
+  if (!result.ok) {
+    return undefined;
+  }
+
+  const risks: BatchEditItemRisk[] = [];
+
+  switch (operation.op) {
+    case "create_frame":
+    case "create_rectangle":
+    case "create_text":
+    case "create_instance":
+    case "duplicate_node": {
+      const parentId = "parentId" in operation && operation.parentId !== undefined
+        ? canonicalizeNodeId(resolveId(operation.parentId, context, "parentId"), context)
+        : undefined;
+      const parentNode = await getConcreteNode(parentId ?? figma.currentPage.id);
+      if (hasActiveAutoLayout(parentNode)) {
+        addRisk(
+          risks,
+          "auto_layout_reflow",
+          "medium",
+          "Adding or duplicating children inside an auto-layout container can reflow sibling layers.",
+          parentNode?.id
+        );
+        if (("x" in operation && operation.x !== undefined) || ("y" in operation && operation.y !== undefined)) {
+          addRisk(
+            risks,
+            "auto_layout_position_ignored",
+            "medium",
+            "Explicit x/y coordinates may be ignored when the new layer is inserted into auto layout.",
+            parentNode?.id
+          );
+        }
+      }
+      break;
+    }
+    case "move_node": {
+      const nodeId = canonicalizeNodeId(resolveId(operation.nodeId, context, "nodeId"), context);
+      const parentId = canonicalizeNodeId(resolveId(operation.parentId, context, "parentId"), context);
+      const node = await getConcreteNode(nodeId);
+      const targetParent = await getConcreteNode(parentId);
+      const sourceParent = node?.parent ?? null;
+      if (sourceParent && sourceParent.id !== parentId) {
+        addRisk(
+          risks,
+          "cross_parent_move",
+          "medium",
+          "Moving a layer across parents can change constraints, stacking order, and inherited layout behavior.",
+          nodeId
+        );
+      }
+      if (hasActiveAutoLayout(sourceParent) || hasActiveAutoLayout(targetParent)) {
+        addRisk(
+          risks,
+          "auto_layout_reflow",
+          "high",
+          "Moving a layer into or out of auto layout can reflow siblings and change the final layout unexpectedly.",
+          nodeId
+        );
+      }
+      break;
+    }
+    case "delete_node": {
+      const nodeId = canonicalizeNodeId(resolveId(operation.nodeId, context, "nodeId"), context);
+      const node = await getConcreteNode(nodeId);
+      addRisk(
+        risks,
+        "destructive_delete",
+        "medium",
+        "Deleting a layer is destructive; if a later op fails, earlier dry-run assumptions may no longer match the document.",
+        nodeId
+      );
+      if (hasActiveAutoLayout(node?.parent ?? null)) {
+        addRisk(
+          risks,
+          "auto_layout_reflow",
+          "high",
+          "Deleting a child from auto layout will reflow remaining siblings.",
+          nodeId
+        );
+      }
+      break;
+    }
+    case "set_instance_properties": {
+      const nodeId = canonicalizeNodeId(resolveId(operation.nodeId, context, "nodeId"), context);
+      const swapComponentId = resolveOptionalId(operation.swapComponentId, context, "swapComponentId");
+      if (swapComponentId) {
+        addRisk(
+          risks,
+          "instance_swap_overrides",
+          operation.preserveOverrides === true ? "medium" : "high",
+          operation.preserveOverrides === true
+            ? "Swapping the backing component can still change size, slot structure, or variant behavior even when preserving overrides."
+            : "Swapping the backing component can drop overrides or change layer structure if the target component differs.",
+          nodeId
+        );
+      }
+      break;
+    }
+    case "update_node_properties": {
+      const nodeId = canonicalizeNodeId(resolveId(operation.nodeId, context, "nodeId"), context);
+      const node = await getConcreteNode(nodeId);
+      const parent = node?.parent ?? null;
+      const touchesPosition = operation.properties.x !== undefined || operation.properties.y !== undefined;
+      const touchesLayoutSize =
+        operation.properties.width !== undefined
+        || operation.properties.height !== undefined
+        || operation.properties.layout !== undefined
+        || operation.properties.layoutGrow !== undefined
+        || operation.properties.layoutAlign !== undefined;
+      if (touchesPosition && hasActiveAutoLayout(parent)) {
+        addRisk(
+          risks,
+          "auto_layout_position_ignored",
+          "medium",
+          "Position changes on children inside auto layout are often overridden by the parent layout.",
+          nodeId
+        );
+      }
+      if (touchesLayoutSize && (hasActiveAutoLayout(parent) || (node && hasAutoLayoutChild(node)))) {
+        addRisk(
+          risks,
+          "layout_resize_side_effect",
+          "medium",
+          "Changing size or layout properties can cascade through auto-layout sizing and affect nearby layers.",
+          nodeId
+        );
+      }
+      break;
+    }
+  }
+
+  return risks.length > 0 ? risks : undefined;
+}
+
+async function requireChildContainer(nodeId: string, context: BatchContext): Promise<void> {
+  const canonicalNodeId = canonicalizeNodeId(nodeId, context);
+  await assertNodeAvailable(canonicalNodeId, context);
+  if (isSyntheticId(canonicalNodeId)) {
+    const kind = context.syntheticKinds.get(canonicalNodeId);
+    if (kind && kind !== "FRAME" && kind !== "PAGE" && kind !== "SCENE") {
+      throw new Error(`Node ${nodeId} cannot contain children`);
+    }
+    return;
+  }
+
+  const node = await getConcreteNode(canonicalNodeId);
   if (!node) {
     return;
   }
@@ -239,8 +489,10 @@ async function requireChildContainer(nodeId: string): Promise<void> {
   }
 }
 
-async function requireComponentSource(nodeId: string): Promise<void> {
-  const node = await getConcreteNode(nodeId);
+async function requireComponentSource(nodeId: string, context: BatchContext): Promise<void> {
+  const canonicalNodeId = canonicalizeNodeId(nodeId, context);
+  await assertNodeAvailable(canonicalNodeId, context);
+  const node = await getConcreteNode(canonicalNodeId);
   if (!node) {
     return;
   }
@@ -249,8 +501,18 @@ async function requireComponentSource(nodeId: string): Promise<void> {
   }
 }
 
-async function requireScene(nodeId: string): Promise<void> {
-  const node = await getConcreteNode(nodeId);
+async function requireScene(nodeId: string, context: BatchContext): Promise<void> {
+  const canonicalNodeId = canonicalizeNodeId(nodeId, context);
+  await assertNodeAvailable(canonicalNodeId, context);
+  if (isSyntheticId(canonicalNodeId)) {
+    const kind = context.syntheticKinds.get(canonicalNodeId);
+    if (kind === "PAGE") {
+      throw new Error(`Node ${nodeId} is not a scene node`);
+    }
+    return;
+  }
+
+  const node = await getConcreteNode(canonicalNodeId);
   if (!node) {
     return;
   }
@@ -260,37 +522,43 @@ async function requireScene(nodeId: string): Promise<void> {
 }
 
 async function requireText(nodeId: string, context: BatchContext): Promise<void> {
-  if (isSyntheticId(nodeId)) {
-    const kind = context.syntheticKinds.get(nodeId);
+  const canonicalNodeId = canonicalizeNodeId(nodeId, context);
+  await assertNodeAvailable(canonicalNodeId, context);
+  if (isSyntheticId(canonicalNodeId)) {
+    const kind = context.syntheticKinds.get(canonicalNodeId);
     if (kind && kind !== "TEXT") {
       throw new Error(`Node ${nodeId} is not a text node`);
     }
     return;
   }
 
-  const node = await figma.getNodeByIdAsync(nodeId);
+  const node = await figma.getNodeByIdAsync(canonicalNodeId);
   if (!node || !isTextNode(node)) {
     throw new Error(node ? `Node ${nodeId} is not a text node` : `Node ${nodeId} was not found`);
   }
 }
 
 async function requireInstance(nodeId: string, context: BatchContext): Promise<void> {
-  if (isSyntheticId(nodeId)) {
-    const kind = context.syntheticKinds.get(nodeId);
+  const canonicalNodeId = canonicalizeNodeId(nodeId, context);
+  await assertNodeAvailable(canonicalNodeId, context);
+  if (isSyntheticId(canonicalNodeId)) {
+    const kind = context.syntheticKinds.get(canonicalNodeId);
     if (kind && kind !== "INSTANCE") {
       throw new Error(`Node ${nodeId} is not an instance`);
     }
     return;
   }
 
-  const node = await figma.getNodeByIdAsync(nodeId);
+  const node = await figma.getNodeByIdAsync(canonicalNodeId);
   if (!node || !isInstanceNode(node)) {
     throw new Error(node ? `Node ${nodeId} is not an instance` : `Node ${nodeId} was not found`);
   }
 }
 
-async function requireFillableNode(nodeId: string): Promise<void> {
-  const node = await getConcreteNode(nodeId);
+async function requireFillableNode(nodeId: string, context: BatchContext): Promise<void> {
+  const canonicalNodeId = canonicalizeNodeId(nodeId, context);
+  await assertNodeAvailable(canonicalNodeId, context);
+  const node = await getConcreteNode(canonicalNodeId);
   if (!node) {
     return;
   }
@@ -307,6 +575,75 @@ async function requireVariable(variableId: string | null | undefined): Promise<v
   const variable = await figma.variables.getVariableByIdAsync(variableId);
   if (!variable) {
     throw new Error(`Variable ${variableId} was not found`);
+  }
+}
+
+async function recordDryRunMutation(
+  context: BatchContext,
+  operation: BatchEditV2Operation,
+  result: BatchEditItemResult
+): Promise<void> {
+  if (!result.ok) {
+    return;
+  }
+
+  switch (operation.op) {
+    case "create_frame":
+    case "create_rectangle":
+    case "create_instance":
+    case "create_text": {
+      if (!result.createdNodeId || !isSyntheticId(result.createdNodeId)) {
+        return;
+      }
+      const parentId = operation.parentId !== undefined
+        ? canonicalizeNodeId(resolveId(operation.parentId, context, "parentId"), context)
+        : figma.currentPage.id;
+      context.shadowParentIds.set(result.createdNodeId, parentId);
+      return;
+    }
+    case "duplicate_node": {
+      if (!result.createdNodeId || !isSyntheticId(result.createdNodeId)) {
+        return;
+      }
+      const sourceNodeId = resolveId(operation.nodeId, context, "nodeId");
+      const parentId = operation.parentId !== undefined
+        ? canonicalizeNodeId(resolveId(operation.parentId, context, "parentId"), context)
+        : await resolveCurrentParentId(sourceNodeId, context);
+      context.shadowParentIds.set(result.createdNodeId, parentId);
+      return;
+    }
+    case "rename_node":
+    case "set_text":
+    case "set_instance_properties":
+    case "set_image_fill":
+    case "update_node_properties":
+    case "bind_variable": {
+      if (!result.updatedNodeId || !isSyntheticId(result.updatedNodeId) || !("nodeId" in operation)) {
+        return;
+      }
+      const sourceNodeId = canonicalizeNodeId(resolveId(operation.nodeId, context, "nodeId"), context);
+      context.syntheticAliases.set(result.updatedNodeId, sourceNodeId);
+      return;
+    }
+    case "move_node": {
+      const sourceNodeId = canonicalizeNodeId(resolveId(operation.nodeId, context, "nodeId"), context);
+      const parentId = canonicalizeNodeId(resolveId(operation.parentId, context, "parentId"), context);
+      context.shadowParentIds.set(sourceNodeId, parentId);
+      if (result.updatedNodeId && isSyntheticId(result.updatedNodeId)) {
+        context.syntheticAliases.set(result.updatedNodeId, sourceNodeId);
+      }
+      return;
+    }
+    case "delete_node": {
+      const sourceNodeId = canonicalizeNodeId(resolveId(operation.nodeId, context, "nodeId"), context);
+      context.deletedNodeIds.add(sourceNodeId);
+      if (result.deletedNodeId && isSyntheticId(result.deletedNodeId)) {
+        context.syntheticAliases.set(result.deletedNodeId, sourceNodeId);
+      }
+      return;
+    }
+    case "create_page":
+      return;
   }
 }
 
@@ -338,7 +675,7 @@ async function dryRunOperation(
     case "create_frame": {
       const parentId = resolveOptionalId(operation.parentId, context, "parentId");
       if (parentId) {
-        await requireChildContainer(parentId);
+        await requireChildContainer(parentId, context);
       }
       const result: BatchEditItemResult = {
         ...base,
@@ -359,7 +696,7 @@ async function dryRunOperation(
     case "create_rectangle": {
       const parentId = resolveOptionalId(operation.parentId, context, "parentId");
       if (parentId) {
-        await requireChildContainer(parentId);
+        await requireChildContainer(parentId, context);
       }
       const result: BatchEditItemResult = {
         ...base,
@@ -381,9 +718,9 @@ async function dryRunOperation(
     case "create_instance": {
       const componentId = resolveId(operation.componentId, context, "componentId");
       const parentId = resolveOptionalId(operation.parentId, context, "parentId");
-      await requireComponentSource(componentId);
+      await requireComponentSource(componentId, context);
       if (parentId) {
-        await requireChildContainer(parentId);
+        await requireChildContainer(parentId, context);
       }
       const result: BatchEditItemResult = {
         ...base,
@@ -403,7 +740,7 @@ async function dryRunOperation(
     case "create_text": {
       const parentId = resolveOptionalId(operation.parentId, context, "parentId");
       if (parentId) {
-        await requireChildContainer(parentId);
+        await requireChildContainer(parentId, context);
       }
       const result: BatchEditItemResult = {
         ...base,
@@ -422,7 +759,7 @@ async function dryRunOperation(
     }
     case "rename_node": {
       const nodeId = resolveId(operation.nodeId, context, "nodeId");
-      await requireScene(nodeId);
+      await requireScene(nodeId, context);
       const result: BatchEditItemResult = {
         ...base,
         ok: true,
@@ -438,9 +775,9 @@ async function dryRunOperation(
     case "duplicate_node": {
       const nodeId = resolveId(operation.nodeId, context, "nodeId");
       const parentId = resolveOptionalId(operation.parentId, context, "parentId");
-      await requireScene(nodeId);
+      await requireScene(nodeId, context);
       if (parentId) {
-        await requireChildContainer(parentId);
+        await requireChildContainer(parentId, context);
       }
       const result: BatchEditItemResult = {
         ...base,
@@ -476,7 +813,7 @@ async function dryRunOperation(
       await requireInstance(nodeId, context);
       const swapComponentId = resolveOptionalId(operation.swapComponentId, context, "swapComponentId");
       if (swapComponentId) {
-        await requireComponentSource(swapComponentId);
+        await requireComponentSource(swapComponentId, context);
       }
       const result: BatchEditItemResult = {
         ...base,
@@ -495,7 +832,7 @@ async function dryRunOperation(
     }
     case "set_image_fill": {
       const nodeId = resolveId(operation.nodeId, context, "nodeId");
-      await requireFillableNode(nodeId);
+      await requireFillableNode(nodeId, context);
       const result: BatchEditItemResult = {
         ...base,
         ok: true,
@@ -513,7 +850,7 @@ async function dryRunOperation(
     }
     case "update_node_properties": {
       const nodeId = resolveId(operation.nodeId, context, "nodeId");
-      await requireScene(nodeId);
+      await requireScene(nodeId, context);
       const result: BatchEditItemResult = {
         ...base,
         ok: true,
@@ -529,8 +866,8 @@ async function dryRunOperation(
     case "move_node": {
       const nodeId = resolveId(operation.nodeId, context, "nodeId");
       const parentId = resolveId(operation.parentId, context, "parentId");
-      await requireScene(nodeId);
-      await requireChildContainer(parentId);
+      await requireScene(nodeId, context);
+      await requireChildContainer(parentId, context);
       const result: BatchEditItemResult = {
         ...base,
         ok: true,
@@ -548,7 +885,7 @@ async function dryRunOperation(
     }
     case "delete_node": {
       const nodeId = resolveId(operation.nodeId, context, "nodeId");
-      await requireScene(nodeId);
+      await requireScene(nodeId, context);
       const result: BatchEditItemResult = {
         ...base,
         ok: true,
@@ -561,7 +898,7 @@ async function dryRunOperation(
     case "bind_variable": {
       const nodeId = resolveId(operation.nodeId, context, "nodeId");
       const variableId = resolveNullableId(operation.variableId, context, "variableId");
-      await requireScene(nodeId);
+      await requireScene(nodeId, context);
       await requireVariable(variableId);
       const result: BatchEditItemResult = {
         ...base,
@@ -828,10 +1165,13 @@ export async function batchEditV2(payload: BatchEditV2Payload): Promise<BatchEdi
     throw new Error("Committed batch_edit_v2 requires confirm=true");
   }
 
-  const results: BatchEditItemResult[] = [];
+  const results: BatchEditItemResultWithRisks[] = [];
   const context: BatchContext = {
     resultsByOpId: new Map(),
-    syntheticKinds: new Map()
+    syntheticKinds: new Map(),
+    syntheticAliases: new Map(),
+    shadowParentIds: new Map(),
+    deletedNodeIds: new Set()
   };
 
   let stoppedAt: number | undefined;
@@ -841,13 +1181,27 @@ export async function batchEditV2(payload: BatchEditV2Payload): Promise<BatchEdi
       const result = dryRun
         ? await dryRunOperation(operation, index, context)
         : { result: await runOperation(operation, index, context, payload.confirm === true, compactResults) };
+      if (dryRun) {
+        const risks = await analyzeDryRunRisks({
+          operation,
+          result: result.result,
+          context
+        });
+        if (risks) {
+          result.result = {
+            ...result.result,
+            risks
+          };
+        }
+        await recordDryRunMutation(context, operation, result.result);
+      }
       const finalResult = compactResults ? compactBatchItemResult(result.result) : result.result;
       results.push(finalResult);
       registerResult(context, operation, finalResult);
       registerSyntheticKind(context, finalResult, result.kind);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown batch operation error";
-      const failure: BatchEditItemResult = {
+      const failure: BatchEditItemResultWithRisks = {
         index,
         op: operation.op,
         opId: operation.opId,
@@ -868,12 +1222,25 @@ export async function batchEditV2(payload: BatchEditV2Payload): Promise<BatchEdi
   }
 
   const successful = results.filter((result) => result.ok).length;
+  const riskCount = dryRun
+    ? results.reduce((total, result) => total + (result.risks?.length ?? 0), 0)
+    : 0;
+  const highRiskCount = dryRun
+    ? results.reduce(
+        (total, result) => total + (result.risks?.filter((risk) => risk.severity === "high").length ?? 0),
+        0
+      )
+    : 0;
   const stoppedSuffix = stoppedAt === undefined ? "" : ` before stopping at operation ${stoppedAt}`;
+  const riskSuffix = dryRun && riskCount > 0
+    ? ` with ${riskCount} risk warning(s)${highRiskCount > 0 ? `, ${highRiskCount} high` : ""}`
+    : "";
 
   return {
     dryRun,
-    summary: `${successful}/${results.length} operation(s) ${dryRun ? "validated" : "applied"}${stoppedSuffix}`,
-    results,
+    summary: `${successful}/${results.length} operation(s) ${dryRun ? "validated" : "applied"}${stoppedSuffix}${riskSuffix}`,
+    results: results as BatchEditItemResult[],
+    ...(dryRun ? { riskCount, highRiskCount } : {}),
     stoppedAt
-  };
+  } as BatchEditV2Result;
 }

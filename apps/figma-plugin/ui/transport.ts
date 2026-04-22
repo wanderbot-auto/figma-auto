@@ -22,6 +22,13 @@ const BRIDGE_HTTP_URL = __FIGMA_AUTO_BRIDGE_HTTP_URL__;
 const BRIDGE_WS_URL = __FIGMA_AUTO_BRIDGE_WS_URL__;
 const PROTOCOL_VERSION = __FIGMA_AUTO_PROTOCOL_VERSION__;
 
+interface RegistrationContext {
+  pluginInstanceId: string;
+  fileKey: string | null;
+  pageId: string;
+  editorType: SessionRegistrationPayload["editorType"];
+}
+
 function createSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -35,6 +42,7 @@ export class BridgeTransport {
   private reconnectTimer: number | null = null;
   private context: PluginRuntimeContext | null = null;
   private sessionId = createSessionId();
+  private lastRegisteredContextKey: string | null = null;
 
   constructor(
     private readonly onStatusChange: (state: BridgeConnectionState, message: string) => void,
@@ -44,7 +52,9 @@ export class BridgeTransport {
   updateContext(context: PluginRuntimeContext): void {
     this.context = context;
     if (this.socket?.readyState === WebSocket.OPEN) {
-      this.registerSession();
+      if (this.getRegistrationContextKey() !== this.lastRegisteredContextKey) {
+        this.registerSession();
+      }
       return;
     }
 
@@ -53,6 +63,7 @@ export class BridgeTransport {
 
   reconnect(): void {
     this.sessionId = createSessionId();
+    this.lastRegisteredContextKey = null;
     this.emitStatus("connecting", `Reconnecting to bridge ${BRIDGE_NAME} on port ${BRIDGE_PORT}`);
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
@@ -115,6 +126,7 @@ export class BridgeTransport {
       }
 
       this.socket = null;
+      this.lastRegisteredContextKey = null;
       if (
         event.code === SESSION_REPLACED_CLOSE_CODE
         || event.reason === SESSION_REPLACED_CLOSE_REASON
@@ -130,6 +142,7 @@ export class BridgeTransport {
       if (this.socket !== socket) {
         return;
       }
+      this.lastRegisteredContextKey = null;
       this.emitStatus("error", `Bridge connection error for ${BRIDGE_NAME} (${BRIDGE_HTTP_URL})`);
     });
   }
@@ -150,13 +163,15 @@ export class BridgeTransport {
       return;
     }
 
+    const registrationContext = this.toRegistrationContext(this.context);
+    const registrationContextKey = this.getRegistrationContextKey(registrationContext);
     const payload: SessionRegistrationPayload = {
       sessionId: this.sessionId,
       protocolVersion: PROTOCOL_VERSION,
-      pluginInstanceId: this.context.pluginInstanceId,
-      fileKey: this.context.fileKey,
-      pageId: this.context.pageId,
-      editorType: this.context.editorType
+      pluginInstanceId: registrationContext.pluginInstanceId,
+      fileKey: registrationContext.fileKey,
+      pageId: registrationContext.pageId,
+      editorType: registrationContext.editorType
     };
 
     const request: RequestEnvelope<"session.register", SessionRegistrationPayload> = {
@@ -168,9 +183,29 @@ export class BridgeTransport {
     };
 
     this.socket.send(JSON.stringify(request));
+    this.lastRegisteredContextKey = registrationContextKey;
   }
 
   private emitStatus(state: BridgeConnectionState, message: string): void {
     this.onStatusChange(state, message);
+  }
+
+  private toRegistrationContext(context: PluginRuntimeContext): RegistrationContext {
+    return {
+      pluginInstanceId: context.pluginInstanceId,
+      fileKey: context.fileKey,
+      pageId: context.pageId,
+      editorType: context.editorType
+    };
+  }
+
+  private getRegistrationContextKey(context: RegistrationContext | null = this.context
+    ? this.toRegistrationContext(this.context)
+    : null): string | null {
+    if (!context) {
+      return null;
+    }
+
+    return JSON.stringify(context);
   }
 }

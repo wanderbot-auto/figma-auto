@@ -78,6 +78,7 @@ import { batchEditV2 } from "./handlers/batch-v2.js";
 import { getComponents } from "./handlers/components.js";
 import { createSpecPage, extractDesignTokens, normalizeNames } from "./handlers/high-level.js";
 import { getFlow } from "./handlers/prototype.js";
+import { invalidateQueryCaches } from "./handlers/query-cache.js";
 import { findNodes, getCurrentPage, getFile, getNode, getNodeTree, getSelection, listPages, ping } from "./handlers/read.js";
 import { setImageFill } from "./handlers/set-image-fill.js";
 import { setInstanceProperties } from "./handlers/set-instance-properties.js";
@@ -221,99 +222,163 @@ function mapErrorCode(message: string): ProtocolError["code"] {
   return "validation_failed";
 }
 
+function isMutatingRequestType(type: RequestEnvelope["type"]): boolean {
+  switch (type) {
+    case "figma.ping":
+    case "figma.get_file":
+    case "figma.get_current_page":
+    case "figma.get_flow":
+    case "figma.get_selection":
+    case "figma.list_pages":
+    case "figma.get_node":
+    case "figma.get_node_tree":
+    case "figma.find_nodes":
+    case "figma.get_styles":
+    case "figma.get_components":
+    case "figma.get_variables":
+    case "figma.extract_design_tokens":
+      return false;
+    default:
+      return true;
+  }
+}
+
 async function executeRequest(request: RequestEnvelope): Promise<ResponseEnvelope<ToolResult>> {
   try {
+    let response: ResponseEnvelope<ToolResult>;
     switch (request.type) {
       case "figma.ping":
-        return success(request.requestId, ping(request.sessionId, pluginInstanceId));
+        response = success(request.requestId, ping(request.sessionId, pluginInstanceId));
+        break;
       case "figma.get_file":
-        return success(request.requestId, getFile());
+        response = success(request.requestId, getFile());
+        break;
       case "figma.get_current_page":
-        return success(request.requestId, getCurrentPage());
+        response = success(request.requestId, getCurrentPage());
+        break;
       case "figma.get_flow":
-        return success(request.requestId, await getFlow(getFlowPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await getFlow(getFlowPayloadSchema.parse(request.payload)));
+        break;
       case "figma.get_selection":
-        return success(request.requestId, getSelection());
+        response = success(request.requestId, getSelection());
+        break;
       case "figma.list_pages":
-        return success(request.requestId, listPages());
+        response = success(request.requestId, listPages());
+        break;
       case "figma.get_node":
-        return success(request.requestId, await getNode(getNodePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await getNode(getNodePayloadSchema.parse(request.payload)));
+        break;
       case "figma.get_node_tree":
-        return success(request.requestId, await getNodeTree(getNodeTreePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await getNodeTree(getNodeTreePayloadSchema.parse(request.payload)));
+        break;
       case "figma.find_nodes":
-        return success(request.requestId, await findNodes(findNodesPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await findNodes(findNodesPayloadSchema.parse(request.payload)));
+        break;
       case "figma.get_styles":
-        return success(request.requestId, await getStyles(getStylesPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await getStyles(getStylesPayloadSchema.parse(request.payload)));
+        break;
       case "figma.get_components":
-        return success(request.requestId, await getComponents(getComponentsPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await getComponents(getComponentsPayloadSchema.parse(request.payload)));
+        break;
       case "figma.get_variables":
-        return success(request.requestId, await getVariables(getVariablesPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await getVariables(getVariablesPayloadSchema.parse(request.payload)));
+        break;
       case "figma.rename_node":
-        return success(request.requestId, await renameNode(renameNodePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await renameNode(renameNodePayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_page":
-        return success(request.requestId, createPage(createPagePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, createPage(createPagePayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_frame":
-        return success(request.requestId, await createFrame(createFramePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await createFrame(createFramePayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_rectangle":
-        return success(request.requestId, await createRectangle(createRectanglePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await createRectangle(createRectanglePayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_component":
-        return success(request.requestId, await createComponent(createComponentPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await createComponent(createComponentPayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_instance":
-        return success(request.requestId, await createInstance(createInstancePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await createInstance(createInstancePayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_text":
-        return success(request.requestId, await createText(createTextPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await createText(createTextPayloadSchema.parse(request.payload)));
+        break;
       case "figma.duplicate_node":
-        return success(request.requestId, await duplicateNode(duplicateNodePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await duplicateNode(duplicateNodePayloadSchema.parse(request.payload)));
+        break;
       case "figma.set_instance_properties":
-        return success(
+        response = success(
           request.requestId,
           await setInstanceProperties(setInstancePropertiesPayloadSchema.parse(request.payload))
         );
+        break;
       case "figma.set_image_fill":
-        return success(request.requestId, await setImageFill(setImageFillPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await setImageFill(setImageFillPayloadSchema.parse(request.payload)));
+        break;
       case "figma.set_reactions":
-        return success(request.requestId, await setReactions(setReactionsPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await setReactions(setReactionsPayloadSchema.parse(request.payload)));
+        break;
       case "figma.set_text":
-        return success(request.requestId, await setText(setTextPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await setText(setTextPayloadSchema.parse(request.payload)));
+        break;
       case "figma.apply_styles":
-        return success(request.requestId, await applyStyles(applyStylesPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await applyStyles(applyStylesPayloadSchema.parse(request.payload)));
+        break;
       case "figma.update_node_properties":
-        return success(
+        response = success(
           request.requestId,
           await updateNodeProperties(updateNodePropertiesPayloadSchema.parse(request.payload))
         );
+        break;
       case "figma.move_node":
-        return success(request.requestId, await moveNode(moveNodePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await moveNode(moveNodePayloadSchema.parse(request.payload)));
+        break;
       case "figma.delete_node":
-        return success(request.requestId, await deleteNode(deleteNodePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await deleteNode(deleteNodePayloadSchema.parse(request.payload)));
+        break;
       case "figma.batch_edit":
-        return success(request.requestId, await batchEdit(batchEditPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await batchEdit(batchEditPayloadSchema.parse(request.payload)));
+        break;
       case "figma.batch_edit_v2":
-        return success(request.requestId, await batchEditV2(batchEditV2PayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await batchEditV2(batchEditV2PayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_variable_collection":
-        return success(
+        response = success(
           request.requestId,
           await createVariableCollection(createVariableCollectionPayloadSchema.parse(request.payload))
         );
+        break;
       case "figma.create_variable":
-        return success(
+        response = success(
           request.requestId,
           await createVariable(createVariablePayloadSchema.parse(request.payload) as CreateVariablePayload)
         );
+        break;
       case "figma.bind_variable":
-        return success(request.requestId, await bindVariable(bindVariablePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await bindVariable(bindVariablePayloadSchema.parse(request.payload)));
+        break;
       case "figma.normalize_names":
-        return success(request.requestId, await normalizeNames(normalizeNamesPayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await normalizeNames(normalizeNamesPayloadSchema.parse(request.payload)));
+        break;
       case "figma.create_spec_page":
-        return success(request.requestId, await createSpecPage(createSpecPagePayloadSchema.parse(request.payload)));
+        response = success(request.requestId, await createSpecPage(createSpecPagePayloadSchema.parse(request.payload)));
+        break;
       case "figma.extract_design_tokens":
-        return success(
+        response = success(
           request.requestId,
           await extractDesignTokens(extractDesignTokensPayloadSchema.parse(request.payload))
         );
+        break;
       default:
-        return failure(request.requestId, "validation_failed", `Unsupported request type ${request.type}`);
+        response = failure(request.requestId, "validation_failed", `Unsupported request type ${request.type}`);
     }
+
+    if (response.ok && isMutatingRequestType(request.type)) {
+      invalidateQueryCaches();
+    }
+
+    return response;
   } catch (error) {
     const message = describeUnknownError(error);
     return failure(request.requestId, mapErrorCode(message), message);
@@ -347,5 +412,6 @@ figma.ui.onmessage = async (message: UiToPluginMessage) => {
 
 figma.on("selectionchange", () => postContext());
 figma.on("currentpagechange", () => postContext());
+figma.on("documentchange", () => invalidateQueryCaches());
 
 postContext();

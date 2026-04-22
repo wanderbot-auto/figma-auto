@@ -16,7 +16,18 @@ import type {
 } from "@figma-auto/protocol";
 
 import { requireSceneNode } from "./node-helpers.js";
+import type { CacheEntry } from "./query-cache.js";
+import { makePayloadCacheKey, readCachedValue, writeCachedValue } from "./query-cache.js";
 import { summarizeNode } from "./read.js";
+
+let variableCollectionCache: CacheEntry<VariableCollection[]> | null = null;
+const variableListsCache = new Map<string, CacheEntry<Variable[]>>();
+const variableResultCache = new Map<string, CacheEntry<GetVariablesResult>>();
+const serializedCollectionCache = new Map<string, VariableCollectionSummary>();
+const serializedVariableCache = {
+  basic: new Map<string, VariableSummary>(),
+  detailed: new Map<string, VariableSummary>()
+};
 
 function toColorValue(color: RGBA): ColorValue {
   return {
@@ -60,7 +71,12 @@ function serializeVariableValue(value: VariableValue): VariableModeValue {
 }
 
 function serializeCollection(collection: VariableCollection): VariableCollectionSummary {
-  return {
+  const cached = serializedCollectionCache.get(collection.id);
+  if (cached) {
+    return cached;
+  }
+
+  const summary = {
     id: collection.id,
     name: collection.name,
     hiddenFromPublishing: collection.hiddenFromPublishing,
@@ -74,10 +90,19 @@ function serializeCollection(collection: VariableCollection): VariableCollection
     })),
     variableIds: [...collection.variableIds]
   };
+
+  serializedCollectionCache.set(collection.id, summary);
+  return summary;
 }
 
 function serializeVariable(variable: Variable, includeValues: boolean): VariableSummary {
-  return {
+  const cache = includeValues ? serializedVariableCache.detailed : serializedVariableCache.basic;
+  const cached = cache.get(variable.id);
+  if (cached) {
+    return cached;
+  }
+
+  const summary = {
     id: variable.id,
     name: variable.name,
     description: variable.description,
@@ -92,6 +117,41 @@ function serializeVariable(variable: Variable, includeValues: boolean): Variable
       ? Object.fromEntries(Object.entries(variable.valuesByMode).map(([modeId, value]) => [modeId, serializeVariableValue(value)]))
       : undefined
   };
+
+  cache.set(variable.id, summary);
+  return summary;
+}
+
+async function getVariableCollections(): Promise<VariableCollection[]> {
+  const cached = readCachedValue(variableCollectionCache);
+  if (cached) {
+    return cached;
+  }
+
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  variableCollectionCache = writeCachedValue(collections);
+  variableResultCache.clear();
+  serializedCollectionCache.clear();
+  return collections;
+}
+
+function getVariableListCacheKey(resolvedType: GetVariablesPayload["resolvedType"]): string {
+  return resolvedType ?? "__all__";
+}
+
+async function getVariablesForResolvedType(resolvedType: GetVariablesPayload["resolvedType"]): Promise<Variable[]> {
+  const cacheKey = getVariableListCacheKey(resolvedType);
+  const cached = readCachedValue(variableListsCache.get(cacheKey));
+  if (cached) {
+    return cached;
+  }
+
+  const variables = await figma.variables.getLocalVariablesAsync(resolvedType);
+  variableListsCache.set(cacheKey, writeCachedValue(variables));
+  variableResultCache.clear();
+  serializedVariableCache.basic.clear();
+  serializedVariableCache.detailed.clear();
+  return variables;
 }
 
 async function requireVariableCollection(collectionId: string): Promise<VariableCollection> {
@@ -139,7 +199,13 @@ function nodeSupportsFills(node: SceneNode): node is SceneNode & MinimalFillsMix
 }
 
 export async function getVariables(payload: GetVariablesPayload): Promise<GetVariablesResult> {
-  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  const resultCacheKey = makePayloadCacheKey(payload);
+  const cachedResult = readCachedValue(variableResultCache.get(resultCacheKey));
+  if (cachedResult) {
+    return cachedResult;
+  }
+
+  const collections = await getVariableCollections();
   const filteredCollections = payload.collectionId
     ? collections.filter((collection) => collection.id === payload.collectionId)
     : collections;
@@ -148,17 +214,20 @@ export async function getVariables(payload: GetVariablesPayload): Promise<GetVar
     throw new Error(`Variable collection ${payload.collectionId} was not found`);
   }
 
-  const variables = await figma.variables.getLocalVariablesAsync(payload.resolvedType);
+  const variables = await getVariablesForResolvedType(payload.resolvedType);
   const filteredVariables = variables.filter((variable) =>
     payload.collectionId ? variable.variableCollectionId === payload.collectionId : true
   );
   const includeValues = payload.includeValues ?? true;
 
-  return {
+  const result = {
     collections: filteredCollections.map((collection) => serializeCollection(collection)),
     variables: filteredVariables.map((variable) => serializeVariable(variable, includeValues)),
     totalVariables: filteredVariables.length
   };
+
+  variableResultCache.set(resultCacheKey, writeCachedValue(result));
+  return result;
 }
 
 export async function createVariableCollection(
