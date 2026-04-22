@@ -58,17 +58,27 @@ final class BridgeStore: ObservableObject {
     stateURL.deletingLastPathComponent().appendingPathComponent("runtime-logs", isDirectory: true)
   }
 
-  init(fileManager: FileManager = .default) {
+  init(
+    fileManager: FileManager = .default,
+    stateURLOverride: URL? = nil,
+    workspaceRootOverride: URL? = nil,
+    initialStateOverride: BridgeManagerState? = nil,
+    shouldStartHealthRefreshLoop: Bool = true
+  ) {
     self.fileManager = fileManager
-    stateURL = Self.resolveStateURL(fileManager: fileManager)
+    stateURL = stateURLOverride ?? Self.resolveStateURL(fileManager: fileManager)
 
-    let loadedState = Self.loadState(from: stateURL)
-    let persistedWorkspaceRoot = loadedState.workspaceRootPath.flatMap { URL(fileURLWithPath: $0, isDirectory: true) }
-    if let persistedWorkspaceRoot,
-       Self.isWorkspaceRootCandidate(persistedWorkspaceRoot, fileManager: fileManager) {
-      workspaceRootURL = persistedWorkspaceRoot
+    let loadedState = initialStateOverride ?? Self.loadState(from: stateURL)
+    if let workspaceRootOverride {
+      workspaceRootURL = workspaceRootOverride
     } else {
-      workspaceRootURL = Self.detectWorkspaceRoot(fileManager: fileManager)
+      let persistedWorkspaceRoot = loadedState.workspaceRootPath.flatMap { URL(fileURLWithPath: $0, isDirectory: true) }
+      if let persistedWorkspaceRoot,
+         Self.isWorkspaceRootCandidate(persistedWorkspaceRoot, fileManager: fileManager) {
+        workspaceRootURL = persistedWorkspaceRoot
+      } else {
+        workspaceRootURL = Self.detectWorkspaceRoot(fileManager: fileManager)
+      }
     }
 
     let configs: [BridgeInstanceConfig]
@@ -81,7 +91,9 @@ final class BridgeStore: ObservableObject {
     instances = configs.map(BridgeInstance.init(config:))
     observeInstances()
     saveState()
-    startHealthRefreshLoop()
+    if shouldStartHealthRefreshLoop {
+      startHealthRefreshLoop()
+    }
 
     NotificationCenter.default.addObserver(
       forName: NSApplication.willTerminateNotification,
@@ -277,6 +289,8 @@ final class BridgeStore: ObservableObject {
     closeLogHandle(for: instance)
     releaseAssignedPort(for: instance)
 
+    let cleanupError = cleanupGeneratedArtifacts(for: instance)
+
     guard let index = instances.firstIndex(where: { $0.id == instance.id }) else {
       return
     }
@@ -284,6 +298,11 @@ final class BridgeStore: ObservableObject {
     instances.remove(at: index)
     observeInstances()
     saveState()
+
+    if let cleanupError {
+      let instanceName = instance.slug.isEmpty ? "this bridge" : instance.slug
+      globalErrorMessage = "Removed \(instanceName), but failed to delete its generated plugin or log files: \(cleanupError.localizedDescription)"
+    }
   }
 
   func buildAll() {
@@ -301,7 +320,7 @@ final class BridgeStore: ObservableObject {
 
     do {
       let resolved = try prepareResolvedConfigurationForStart(for: instance)
-      if instance.autoBuild {
+      if instance.autoBuild || !resolved.pluginAssetsExist(fileManager: fileManager) {
         try await runBuild(for: instance, resolved: resolved)
       }
       try startBridgeProcess(for: instance, resolved: resolved)
@@ -344,7 +363,7 @@ final class BridgeStore: ObservableObject {
     try ensureLogDirectories(for: resolved)
     try appendLogDivider(
       to: resolved.bridgeLogURL,
-      title: "Build \(instance.displayName)"
+      title: "Build \(instance.slug)"
     )
 
     let process = try configuredShellProcess(
@@ -411,7 +430,7 @@ final class BridgeStore: ObservableObject {
     try ensureLogDirectories(for: resolved)
     try appendLogDivider(
       to: resolved.bridgeLogURL,
-      title: "Bridge \(instance.displayName)"
+      title: "Bridge \(instance.slug)"
     )
 
     let logHandle = try logFileHandle(for: resolved.bridgeLogURL)
@@ -708,6 +727,28 @@ final class BridgeStore: ObservableObject {
     }
   }
 
+  private func cleanupGeneratedArtifacts(for instance: BridgeInstance) -> Error? {
+    guard let resolved = try? resolvedConfiguration(for: instance) else {
+      return nil
+    }
+
+    do {
+      try removeGeneratedArtifacts(for: resolved)
+      return nil
+    } catch {
+      return error
+    }
+  }
+
+  private func removeGeneratedArtifacts(for resolved: ResolvedBridgeConfiguration) throws {
+    for directoryURL in resolved.artifactDirectoryURLs {
+      guard fileManager.fileExists(atPath: directoryURL.path) else {
+        continue
+      }
+      try fileManager.removeItem(at: directoryURL)
+    }
+  }
+
   private func observeInstances() {
     cancellables.removeAll()
     for instance in instances {
@@ -785,8 +826,6 @@ final class BridgeStore: ObservableObject {
       }
       return
     }
-
-    instance.setConnectionState(.checking)
 
     do {
       let resolved = try resolvedConfiguration(for: instance)
@@ -945,8 +984,8 @@ final class BridgeStore: ObservableObject {
 
       return BridgeInstanceConfig(
         slug: slug,
-        displayName: BridgeConfigurationResolver.displayName(for: slug),
-        figmaFileLabel: BridgeConfigurationResolver.displayName(for: slug)
+        displayName: slug,
+        figmaFileLabel: slug
       )
     }
   }

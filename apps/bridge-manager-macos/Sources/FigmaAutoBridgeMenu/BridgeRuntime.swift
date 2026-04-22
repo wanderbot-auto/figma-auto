@@ -160,10 +160,13 @@ final class BridgeInstance: ObservableObject, Identifiable {
   var stopRequested = false
 
   init(config: BridgeInstanceConfig) {
+    let bridgeName = BridgeConfigurationResolver.canonicalBridgeName(
+      candidates: [config.slug, config.displayName, config.figmaFileLabel]
+    )
     id = config.id
-    slug = config.slug
-    displayName = config.displayName
-    figmaFileLabel = config.figmaFileLabel
+    slug = bridgeName
+    displayName = bridgeName
+    figmaFileLabel = bridgeName
     portOverride = config.portOverride
     autoBuild = config.autoBuild
   }
@@ -172,8 +175,8 @@ final class BridgeInstance: ObservableObject, Identifiable {
     BridgeInstanceConfig(
       id: id,
       slug: slug,
-      displayName: displayName,
-      figmaFileLabel: figmaFileLabel,
+      displayName: slug,
+      figmaFileLabel: slug,
       portOverride: portOverride,
       autoBuild: autoBuild
     )
@@ -183,7 +186,18 @@ final class BridgeInstance: ObservableObject, Identifiable {
     BridgeConfigurationResolver.normalizeInstanceName(slug)
   }
 
+  func updateBridgeName(_ rawValue: String) {
+    let normalized = BridgeConfigurationResolver.normalizeInstanceName(rawValue)
+    slug = normalized
+    displayName = normalized
+    figmaFileLabel = normalized
+  }
+
   func setStatus(_ newStatus: BridgeRuntimeStatus, errorMessage: String? = nil) {
+    if status == newStatus && lastErrorMessage == errorMessage {
+      return
+    }
+
     status = newStatus
     lastErrorMessage = errorMessage
     if !newStatus.isRunning && !newStatus.isBusy {
@@ -192,6 +206,9 @@ final class BridgeInstance: ObservableObject, Identifiable {
   }
 
   func setConnectionState(_ newState: BridgeConnectionState) {
+    if connectionState == newState {
+      return
+    }
     connectionState = newState
   }
 }

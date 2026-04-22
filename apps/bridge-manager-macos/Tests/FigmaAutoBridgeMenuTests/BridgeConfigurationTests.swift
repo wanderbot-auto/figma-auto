@@ -13,8 +13,20 @@ final class BridgeConfigurationTests: XCTestCase {
     )
     XCTAssertEqual(
       BridgeConfigurationResolver.normalizeInstanceName("a__b"),
-      "a__b"
+      "a-b"
     )
+    XCTAssertEqual(
+      BridgeConfigurationResolver.normalizeInstanceName("Bridge.Name"),
+      "bridge-name"
+    )
+  }
+
+  func testBridgeNameValidationAllowsKebabCaseOnly() {
+    XCTAssertTrue(BridgeConfigurationResolver.isValidBridgeName("bridge-name"))
+    XCTAssertTrue(BridgeConfigurationResolver.isValidBridgeName("bridge-name-2"))
+    XCTAssertFalse(BridgeConfigurationResolver.isValidBridgeName("Bridge Name"))
+    XCTAssertFalse(BridgeConfigurationResolver.isValidBridgeName("bridge_name"))
+    XCTAssertFalse(BridgeConfigurationResolver.isValidBridgeName(""))
   }
 
   func testDeriveInstancePortMatchesCurrentHashRule() {
@@ -70,24 +82,60 @@ final class BridgeConfigurationTests: XCTestCase {
     }
   }
 
-  func testDefaultProductInstancesAreBusinessFriendly() {
+  func testDefaultProductInstancesUseBridgeNames() {
     let defaults = BridgeConfigurationResolver.defaultProductInstances()
 
     XCTAssertEqual(defaults.map(\.slug), ["marketing-landing", "product-flow", "design-system"])
-    XCTAssertEqual(defaults.map(\.displayName), ["Marketing Landing", "Product Flow", "Design System"])
+    XCTAssertEqual(defaults.map(\.displayName), ["marketing-landing", "product-flow", "design-system"])
+    XCTAssertEqual(defaults.map(\.figmaFileLabel), ["marketing-landing", "product-flow", "design-system"])
     XCTAssertEqual(defaults.map(\.autoBuild), [false, false, false])
   }
 
   func testMakeCustomInstanceConfigGeneratesUniqueBridgeNames() {
     let existing = [
-      BridgeInstanceConfig(slug: "design-file", displayName: "New Bridge"),
-      BridgeInstanceConfig(slug: "design-file-2", displayName: "New Bridge 2")
+      BridgeInstanceConfig(slug: "bridge-name", displayName: "bridge-name"),
+      BridgeInstanceConfig(slug: "bridge-name-2", displayName: "bridge-name-2")
     ]
 
     let generated = BridgeConfigurationResolver.makeCustomInstanceConfig(existingConfigs: existing)
 
-    XCTAssertEqual(generated.slug, "design-file-3")
-    XCTAssertEqual(generated.displayName, "New Bridge 3")
-    XCTAssertEqual(generated.figmaFileLabel, "")
+    XCTAssertEqual(generated.slug, "bridge-name-3")
+    XCTAssertEqual(generated.displayName, "bridge-name-3")
+    XCTAssertEqual(generated.figmaFileLabel, "bridge-name-3")
+  }
+
+  func testConfigCanonicalizesBridgeNameAcrossDisplayAndLabel() {
+    let config = BridgeInstanceConfig(
+      slug: "",
+      displayName: "Maker Portfolio",
+      figmaFileLabel: "Custom Label"
+    )
+
+    XCTAssertEqual(config.slug, "maker-portfolio")
+    XCTAssertEqual(config.displayName, "maker-portfolio")
+    XCTAssertEqual(config.figmaFileLabel, "maker-portfolio")
+  }
+
+  func testPluginAssetsExistRequiresManifestAndRuntimeFiles() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    try "{}".write(to: tempRoot.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+    let bridgeDistURL = tempRoot
+      .appendingPathComponent("apps/mcp-bridge/dist", isDirectory: true)
+    try FileManager.default.createDirectory(at: bridgeDistURL, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: bridgeDistURL.appendingPathComponent("index.js").path, contents: Data())
+
+    let config = BridgeInstanceConfig(slug: "design-file", displayName: "New Bridge")
+    let resolved = try BridgeConfigurationResolver.resolve(workspaceRoot: tempRoot, config: config)
+
+    XCTAssertFalse(resolved.pluginAssetsExist(fileManager: .default))
+
+    try FileManager.default.createDirectory(at: resolved.pluginDistURL, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: resolved.manifestURL.path, contents: Data("{}".utf8))
+    FileManager.default.createFile(atPath: resolved.pluginDistURL.appendingPathComponent("code.js").path, contents: Data())
+    FileManager.default.createFile(atPath: resolved.pluginDistURL.appendingPathComponent("ui.html").path, contents: Data())
+
+    XCTAssertTrue(resolved.pluginAssetsExist(fileManager: .default))
   }
 }

@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 import SwiftUI
 
+enum ManagerViewLayout {
+  static let width: CGFloat = 456
+  static let populatedHeight: CGFloat = 640
+  static let emptyHeight: CGFloat = 360
+
+  static func popoverHeight(hasBridges: Bool) -> CGFloat {
+    hasBridges ? populatedHeight : emptyHeight
+  }
+}
+
 struct MenuBarLabel: View {
   @EnvironmentObject private var store: BridgeStore
 
@@ -37,6 +47,7 @@ struct ManagerView: View {
   @State private var saveFeedbackText: String?
   @State private var utilityFeedbackText: String?
   @State private var pendingDeleteInstanceID: UUID?
+  @State private var bridgeNameDraft = ""
   @State private var saveFeedbackToken = UUID()
   @State private var utilityFeedbackToken = UUID()
 
@@ -48,7 +59,11 @@ struct ManagerView: View {
   var body: some View {
     dashboardScreen
       .padding(16)
-      .frame(width: 456, height: 640, alignment: .topLeading)
+      .frame(
+        width: ManagerViewLayout.width,
+        height: ManagerViewLayout.popoverHeight(hasBridges: !store.instances.isEmpty),
+        alignment: .topLeading
+      )
       .background(BridgePalette.bg200)
       .alert("Delete bridge?", isPresented: isDeleteAlertPresented) {
         Button("Delete", role: .destructive) {
@@ -62,16 +77,19 @@ struct ManagerView: View {
       }
     .onAppear {
       syncSelection()
+      syncBridgeNameDraft()
       refreshLogEntries()
     }
     .onChange(of: store.instances.map(\.id)) { _ in
       syncSelection()
+      syncBridgeNameDraft()
       refreshLogEntries()
     }
     .onChange(of: selectedInstanceID) { _ in
       isDetailsExpanded = false
       logFilter = ""
       logScope = .all
+      syncBridgeNameDraft()
       refreshLogEntries()
     }
     .onChange(of: isLogsExpanded) { expanded in
@@ -147,19 +165,25 @@ struct ManagerView: View {
           Text("Design File Mappings")
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(BridgePalette.text100)
-          Text("Select a bridge to expand details, controls, logs, and deletion.")
+          Text(
+            store.instances.isEmpty
+              ? "Create your first bridge to start mapping files."
+              : "Select a bridge to expand details, controls, logs, and deletion."
+          )
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(BridgePalette.text200)
         }
 
         Spacer(minLength: 0)
 
-        Button {
-          addBridge()
-        } label: {
-          Label("New Bridge", systemImage: "plus")
+        if !store.instances.isEmpty {
+          Button {
+            addBridge()
+          } label: {
+            Label("Add Bridge", systemImage: "plus")
+          }
+          .buttonStyle(AppButtonStyle(kind: .secondary))
         }
-        .buttonStyle(AppButtonStyle(kind: .secondary))
       }
 
       if store.instances.isEmpty {
@@ -298,20 +322,17 @@ struct ManagerView: View {
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(BridgePalette.text200)
 
-        HStack(spacing: 10) {
-          InspectorField(
-            title: "Business Name",
-            text: selectedDisplayNameBinding,
-            placeholder: "Marketing Landing",
-            validationMessage: selectedDisplayNameValidationMessage
-          )
-          InspectorField(
-            title: "Figma File Label",
-            text: selectedFigmaFileBinding,
-            placeholder: "Marketing landing file",
-            validationMessage: nil
-          )
-        }
+        InspectorField(
+          title: "Bridge Name",
+          text: selectedBridgeNameBinding,
+          placeholder: "bridge-name",
+          validationMessage: selectedBridgeNameValidationMessage
+        )
+
+        Text("Use lowercase letters, numbers, and hyphens only. This name is also used for the plugin folder and Figma file label.")
+          .font(.system(size: 10, weight: .medium))
+          .foregroundStyle(BridgePalette.text200)
+          .fixedSize(horizontal: false, vertical: true)
       }
       .padding(12)
 
@@ -610,21 +631,14 @@ struct ManagerView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  private var selectedDisplayNameBinding: Binding<String> {
+  private var selectedBridgeNameBinding: Binding<String> {
     Binding(
-      get: { selectedInstance?.displayName ?? "" },
+      get: { bridgeNameDraft },
       set: { newValue in
-        selectedInstance?.displayName = newValue
-        noteEdited()
-      }
-    )
-  }
-
-  private var selectedFigmaFileBinding: Binding<String> {
-    Binding(
-      get: { selectedInstance?.figmaFileLabel ?? "" },
-      set: { newValue in
-        selectedInstance?.figmaFileLabel = newValue
+        bridgeNameDraft = newValue
+        if BridgeConfigurationResolver.isValidBridgeName(newValue) {
+          selectedInstance?.updateBridgeName(newValue)
+        }
         noteEdited()
       }
     )
@@ -654,17 +668,22 @@ struct ManagerView: View {
     }
   }
 
-  private var selectedDisplayNameValidationMessage: String? {
-    guard let selectedInstance else {
+  private var selectedBridgeNameValidationMessage: String? {
+    let trimmed = bridgeNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard selectedInstance != nil else {
       return nil
     }
-    return selectedInstance.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      ? "Enter a business label so this mapping is easy to recognize."
-      : nil
+    if trimmed.isEmpty {
+      return "Bridge name is required."
+    }
+    if !BridgeConfigurationResolver.isValidBridgeName(trimmed) {
+      return "Use lowercase letters, numbers, and hyphens only, for example bridge-name."
+    }
+    return nil
   }
 
   private var hasValidationError: Bool {
-    selectedDisplayNameValidationMessage != nil
+    selectedBridgeNameValidationMessage != nil
   }
 
   private var pendingDeleteInstance: BridgeInstance? {
@@ -687,10 +706,10 @@ struct ManagerView: View {
 
   private var deleteConfirmationMessage: String {
     guard let pendingDeleteInstance else {
-      return "This bridge will be removed from the mappings list."
+      return "This bridge will be removed from the mappings list, along with its generated plugin files and logs."
     }
 
-    return "Remove \(pendingDeleteInstance.displayName.isEmpty ? "this bridge" : pendingDeleteInstance.displayName) from the mappings list? Running processes will be stopped first."
+    return "Remove \(pendingDeleteInstance.slug.isEmpty ? "this bridge" : pendingDeleteInstance.slug) from the mappings list? Running processes will be stopped first, and its generated plugin folder plus log folder will be deleted."
   }
 
   private var cardBackground: some View {
@@ -723,6 +742,10 @@ struct ManagerView: View {
     }
 
     selectedInstanceID = store.instances.first?.id
+  }
+
+  private func syncBridgeNameDraft() {
+    bridgeNameDraft = selectedInstance?.slug ?? ""
   }
 
   private func toggle(_ instance: BridgeInstance) {
@@ -911,11 +934,14 @@ struct ManagerView: View {
       parseLogEntry(line, fallbackIndex: offset)
     }
 
-    logEntries = parsed.isEmpty ? fallbackEntries(for: selectedInstance) : parsed
+    let nextEntries = parsed.isEmpty ? fallbackEntries(for: selectedInstance) : parsed
+    if nextEntries != logEntries {
+      logEntries = nextEntries
+    }
   }
 
   private func noteEdited() {
-    showSaveFeedback(selectedDisplayNameValidationMessage == nil ? "Saved!" : "Needs attention")
+    showSaveFeedback(selectedBridgeNameValidationMessage == nil ? "Saved!" : "Needs attention")
   }
 
   private func showSaveFeedback(_ text: String) {
@@ -949,6 +975,7 @@ struct ManagerView: View {
     if let error = instance.lastErrorMessage {
       return [
         BridgeLogEntry(
+          id: "error:\(error)",
           timestamp: "--:--:--",
           level: .error,
           message: error,
@@ -961,9 +988,16 @@ struct ManagerView: View {
 
   private func parseLogEntry(_ line: String, fallbackIndex: Int) -> BridgeLogEntry {
     let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    let entryID = "log:\(fallbackIndex):\(trimmed)"
 
     if let timestamped = parseBracketedEntry(trimmed) {
-      return timestamped
+      return BridgeLogEntry(
+        id: entryID,
+        timestamp: timestamped.timestamp,
+        level: timestamped.level,
+        message: timestamped.message,
+        searchableText: timestamped.searchableText
+      )
     }
 
     let parts = trimmed.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
@@ -971,6 +1005,7 @@ struct ManagerView: View {
       let level = BridgeLogLevel(rawValue: String(parts[1]).uppercased()) ?? .fromMessage(String(parts[1]))
       let message = String(parts[2])
       return BridgeLogEntry(
+        id: entryID,
         timestamp: String(parts[0]),
         level: level,
         message: message,
@@ -979,6 +1014,7 @@ struct ManagerView: View {
     }
 
     return BridgeLogEntry(
+      id: entryID,
       timestamp: fallbackTimestamp(for: fallbackIndex),
       level: .fromMessage(trimmed),
       message: trimmed,
@@ -995,6 +1031,7 @@ struct ManagerView: View {
     let message = line[line.index(after: closingIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
     let displayTime = displayTime(from: timestampString) ?? "--:--:--"
     return BridgeLogEntry(
+      id: "bracketed:\(line)",
       timestamp: displayTime,
       level: .fromMessage(message),
       message: message,
@@ -1052,12 +1089,12 @@ private struct BridgeRow: View {
         }
 
       VStack(alignment: .leading, spacing: 4) {
-        Text(instance.displayName.isEmpty ? "Untitled Bridge" : instance.displayName)
+        Text(instance.slug.isEmpty ? "Untitled Bridge" : instance.slug)
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(BridgePalette.text100)
           .lineLimit(1)
 
-        Text(instance.figmaFileLabel.isEmpty ? "Assign one Figma file to this slot." : instance.figmaFileLabel)
+        Text(instance.slug.isEmpty ? "Name this bridge to generate its plugin folder." : "Plugin folder: \(instance.slug)")
           .font(.system(size: 11, weight: .medium))
           .foregroundStyle(BridgePalette.text200)
           .lineLimit(1)
@@ -1316,15 +1353,28 @@ private struct EmptyBridgeState: View {
   let addBridge: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("Preparing default design file slots")
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(BridgePalette.text100)
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .center, spacing: 12) {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(BridgePalette.primarySoft)
+          .frame(width: 36, height: 36)
+          .overlay {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+              .font(.system(size: 15, weight: .semibold))
+              .foregroundStyle(BridgePalette.primary100)
+          }
 
-      Text("This build expects bundled plugin manifests. Reopen the app or choose a development workspace if the runtime is missing.")
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(BridgePalette.text200)
-        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 4) {
+          Text("No bridges yet")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(BridgePalette.text100)
+
+          Text("Add a bridge to manage a local runtime and file mapping.")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(BridgePalette.text200)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
 
       Button {
         addBridge()
@@ -1334,7 +1384,7 @@ private struct EmptyBridgeState: View {
       .buttonStyle(AppButtonStyle(kind: .secondary))
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.vertical, 10)
+    .padding(.vertical, 6)
   }
 }
 
@@ -1590,8 +1640,8 @@ private struct BridgeVisualStyle {
   let iconBackground: Color
 }
 
-private struct BridgeLogEntry: Identifiable {
-  let id = UUID()
+private struct BridgeLogEntry: Identifiable, Equatable {
+  let id: String
   let timestamp: String
   let level: BridgeLogLevel
   let message: String

@@ -22,11 +22,11 @@ final class StatusBarController: NSObject {
   private func configurePopover() {
     popover.behavior = .transient
     popover.animates = true
-    popover.contentSize = NSSize(width: 456, height: 640)
     popover.contentViewController = NSHostingController(
       rootView: ManagerView()
         .environmentObject(store)
     )
+    syncPopoverSize()
   }
 
   private func configureStatusButton() {
@@ -49,6 +49,14 @@ final class StatusBarController: NSObject {
         }
       }
       .store(in: &cancellables)
+
+    store.$instances
+      .map { !$0.isEmpty }
+      .removeDuplicates()
+      .sink { [weak self] hasBridges in
+        self?.syncPopoverSize(hasBridges: hasBridges)
+      }
+      .store(in: &cancellables)
   }
 
   private func syncStatusItem() {
@@ -61,6 +69,15 @@ final class StatusBarController: NSObject {
     button.contentTintColor = nil
     button.attributedTitle = NSAttributedString(string: "")
     button.toolTip = "\(store.runningCount) running, \(store.busyCount) busy, \(store.failedCount) failed"
+  }
+
+  private func syncPopoverSize(hasBridges: Bool? = nil) {
+    let contentSize = NSSize(
+      width: ManagerViewLayout.width,
+      height: ManagerViewLayout.popoverHeight(hasBridges: hasBridges ?? !store.instances.isEmpty)
+    )
+    popover.contentSize = contentSize
+    popover.contentViewController?.preferredContentSize = contentSize
   }
 
   private func makeBridgeVaultCoreImage(color: NSColor) -> NSImage {

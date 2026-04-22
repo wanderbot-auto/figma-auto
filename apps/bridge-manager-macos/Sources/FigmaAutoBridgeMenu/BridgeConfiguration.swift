@@ -21,10 +21,13 @@ struct BridgeInstanceConfig: Codable, Identifiable, Equatable {
     portOverride: String = "",
     autoBuild: Bool = false
   ) {
+    let bridgeName = BridgeConfigurationResolver.canonicalBridgeName(
+      candidates: [slug, displayName, figmaFileLabel]
+    )
     self.id = id
-    self.slug = BridgeConfigurationResolver.normalizeInstanceName(slug)
-    self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-    self.figmaFileLabel = figmaFileLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+    self.slug = bridgeName
+    self.displayName = bridgeName
+    self.figmaFileLabel = bridgeName
     self.portOverride = portOverride
     self.autoBuild = autoBuild
   }
@@ -35,16 +38,16 @@ struct BridgeInstanceConfig: Codable, Identifiable, Equatable {
 
     let legacyName = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
     let decodedSlug = try container.decodeIfPresent(String.self, forKey: .slug) ?? legacyName
-    let normalizedSlug = BridgeConfigurationResolver.normalizeInstanceName(decodedSlug)
-    slug = normalizedSlug.isEmpty ? BridgeConfigurationResolver.fallbackSlug(for: legacyName) : normalizedSlug
-
     let decodedDisplayName = try container.decodeIfPresent(String.self, forKey: .displayName)
-      ?? BridgeConfigurationResolver.displayName(for: slug)
-    displayName = decodedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-
+      ?? ""
     let decodedFileLabel = try container.decodeIfPresent(String.self, forKey: .figmaFileLabel)
-      ?? displayName
-    figmaFileLabel = decodedFileLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+      ?? ""
+    let bridgeName = BridgeConfigurationResolver.canonicalBridgeName(
+      candidates: [decodedSlug, decodedDisplayName, decodedFileLabel, legacyName]
+    )
+    slug = bridgeName
+    displayName = bridgeName
+    figmaFileLabel = bridgeName
 
     portOverride = try container.decodeIfPresent(String.self, forKey: .portOverride) ?? ""
     autoBuild = try container.decodeIfPresent(Bool.self, forKey: .autoBuild) ?? false
@@ -86,6 +89,33 @@ struct ResolvedBridgeConfiguration: Equatable {
   var mcpURL: String {
     "\(bridgeHTTPURL)/mcp"
   }
+
+  var pluginRootURL: URL {
+    manifestURL.deletingLastPathComponent()
+  }
+
+  var artifactDirectoryURLs: [URL] {
+    var urls = [pluginRootURL]
+
+    let logRootURLs = [bridgeLogURL, auditLogURL]
+      .map { $0.deletingLastPathComponent() }
+      .filter { url in
+        !urls.contains { $0.path == url.path }
+      }
+    urls.append(contentsOf: logRootURLs)
+
+    return urls
+  }
+
+  func pluginAssetsExist(fileManager: FileManager = .default) -> Bool {
+    let requiredPaths = [
+      manifestURL.path,
+      pluginDistURL.appendingPathComponent("code.js").path,
+      pluginDistURL.appendingPathComponent("ui.html").path
+    ]
+
+    return requiredPaths.allSatisfy { fileManager.fileExists(atPath: $0) }
+  }
 }
 
 enum BridgeConfigurationError: LocalizedError {
@@ -115,7 +145,7 @@ enum BridgeConfigurationResolver {
   private static let wordsToKeepUppercase = Set(["mcp", "api", "ios", "web"])
 
   static func normalizeInstanceName(_ rawValue: String) -> String {
-    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
+    let allowed = CharacterSet.alphanumerics
     let lowercased = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     var scalars: [UnicodeScalar] = []
     var lastWasHyphen = false
@@ -124,7 +154,7 @@ enum BridgeConfigurationResolver {
       if allowed.contains(scalar) {
         scalars.append(scalar)
         lastWasHyphen = false
-      } else if !lastWasHyphen {
+      } else if !scalars.isEmpty && !lastWasHyphen {
         scalars.append(UnicodeScalar(UInt8(ascii: "-")))
         lastWasHyphen = true
       }
@@ -132,6 +162,26 @@ enum BridgeConfigurationResolver {
 
     let normalized = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     return normalized
+  }
+
+  static func isValidBridgeName(_ rawValue: String) -> Bool {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      return false
+    }
+
+    return normalizeInstanceName(trimmed) == trimmed
+  }
+
+  static func canonicalBridgeName(candidates: [String]) -> String {
+    for candidate in candidates {
+      let normalized = normalizeInstanceName(candidate)
+      if !normalized.isEmpty {
+        return normalized
+      }
+    }
+
+    return "bridge-name"
   }
 
   static func displayName(for slug: String) -> String {
@@ -157,41 +207,36 @@ enum BridgeConfigurationResolver {
     if !fallback.isEmpty {
       return fallback
     }
-    return "design-file"
+    return "bridge-name"
   }
 
   static func defaultProductInstances() -> [BridgeInstanceConfig] {
     [
       BridgeInstanceConfig(
         slug: "marketing-landing",
-        displayName: "Marketing Landing",
-        figmaFileLabel: "Marketing landing file"
+        displayName: "marketing-landing",
+        figmaFileLabel: "marketing-landing"
       ),
       BridgeInstanceConfig(
         slug: "product-flow",
-        displayName: "Product Flow",
-        figmaFileLabel: "Product flow file"
+        displayName: "product-flow",
+        figmaFileLabel: "product-flow"
       ),
       BridgeInstanceConfig(
         slug: "design-system",
-        displayName: "Design System",
-        figmaFileLabel: "Design system library"
+        displayName: "design-system",
+        figmaFileLabel: "design-system"
       )
     ]
   }
 
   static func makeCustomInstanceConfig(existingConfigs: [BridgeInstanceConfig]) -> BridgeInstanceConfig {
     let existingSlugs = Set(existingConfigs.map { normalizeInstanceName($0.slug) })
-    let existingDisplayNames = Set(existingConfigs.map {
-      $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    })
-
-    let slug = makeUniqueSlug(base: "design-file", existingSlugs: existingSlugs)
-    let displayName = makeUniqueDisplayName(base: "New Bridge", existingDisplayNames: existingDisplayNames)
+    let slug = makeUniqueSlug(base: "bridge-name", existingSlugs: existingSlugs)
     return BridgeInstanceConfig(
       slug: slug,
-      displayName: displayName,
-      figmaFileLabel: ""
+      displayName: slug,
+      figmaFileLabel: slug
     )
   }
 
@@ -207,20 +252,6 @@ enum BridgeConfigurationResolver {
 
     return normalizedBase
   }
-
-  private static func makeUniqueDisplayName(base: String, existingDisplayNames: Set<String>) -> String {
-    let normalizedBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !existingDisplayNames.contains(normalizedBase.lowercased()) else {
-      var suffix = 2
-      while existingDisplayNames.contains("\(normalizedBase) \(suffix)".lowercased()) {
-        suffix += 1
-      }
-      return "\(normalizedBase) \(suffix)"
-    }
-
-    return normalizedBase
-  }
-
   static func deriveInstancePort(defaultPort: Int, instanceName: String) -> Int {
     var hashValue = 0
     for scalar in instanceName.unicodeScalars {
