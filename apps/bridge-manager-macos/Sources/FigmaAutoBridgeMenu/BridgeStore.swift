@@ -313,6 +313,49 @@ final class BridgeStore: ObservableObject {
     }
   }
 
+  func saveConfiguration(
+    for instance: BridgeInstance,
+    bridgeName rawBridgeName: String,
+    portOverride rawPortOverride: String
+  ) async throws -> Bool {
+    guard !instance.status.isBusy else {
+      throw NSError(
+        domain: "FigmaAutoBridgeMenu",
+        code: 2,
+        userInfo: [NSLocalizedDescriptionKey: "Wait for the current bridge action to finish before saving."]
+      )
+    }
+
+    let bridgeName = rawBridgeName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard BridgeConfigurationResolver.isValidBridgeName(bridgeName) else {
+      throw BridgeConfigurationError.invalidInstanceName
+    }
+
+    let normalizedPortOverride = try normalizePortOverride(rawPortOverride)
+    let currentPortOverride = instance.portOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+    let didChange = instance.slug != bridgeName || currentPortOverride != normalizedPortOverride
+    guard didChange else {
+      return false
+    }
+
+    let shouldRestart = instance.status.isRunning
+    if shouldRestart {
+      stop(instance)
+      try await waitForInstanceToStop(instance)
+    }
+
+    instance.updateBridgeName(bridgeName)
+    instance.portOverride = normalizedPortOverride
+    clearInstanceError(for: instance)
+    saveState()
+
+    if shouldRestart {
+      await startInstance(instance)
+    }
+
+    return true
+  }
+
   private func startInstance(_ instance: BridgeInstance) async {
     if instance.status.isBusy || instance.status.isRunning {
       return
@@ -810,6 +853,52 @@ final class BridgeStore: ObservableObject {
           return
         }
       }
+    }
+  }
+
+  private func normalizePortOverride(_ rawValue: String) throws -> String {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      return ""
+    }
+
+    guard let port = Int(trimmed) else {
+      throw BridgeConfigurationError.invalidPort(trimmed)
+    }
+
+    guard (1...65535).contains(port) else {
+      throw BridgeConfigurationError.outOfRangePort(port)
+    }
+
+    return String(port)
+  }
+
+  private func waitForInstanceToStop(_ instance: BridgeInstance) async throws {
+    for _ in 0..<120 {
+      if !instance.status.isBusy && !instance.status.isRunning && instance.bridgeProcess == nil && instance.buildProcess == nil {
+        return
+      }
+
+      try await Task.sleep(for: .milliseconds(50))
+    }
+
+    throw NSError(
+      domain: "FigmaAutoBridgeMenu",
+      code: 3,
+      userInfo: [NSLocalizedDescriptionKey: "Timed out while waiting for the bridge to restart."]
+    )
+  }
+
+  private func clearInstanceError(for instance: BridgeInstance) {
+    switch instance.status {
+    case let .stopped(lastExitCode):
+      instance.setStatus(.stopped(lastExitCode: lastExitCode))
+    case .failed:
+      instance.setStatus(.stopped(lastExitCode: nil))
+    case let .running(pid):
+      instance.setStatus(.running(pid: pid))
+    case .building, .starting, .stopping:
+      break
     }
   }
 

@@ -3,6 +3,48 @@ import XCTest
 
 final class BridgeStoreTests: XCTestCase {
   @MainActor
+  func testSaveConfigurationPersistsBridgeNameAndPortOverride() async throws {
+    let fileManager = FileManager.default
+    let tempRoot = fileManager.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? fileManager.removeItem(at: tempRoot) }
+
+    try makeWorkspaceRoot(at: tempRoot, fileManager: fileManager)
+
+    let stateURL = tempRoot
+      .appendingPathComponent("state", isDirectory: true)
+      .appendingPathComponent("state.json")
+    let config = BridgeInstanceConfig(slug: "design-file", displayName: "New Bridge")
+    let state = BridgeManagerState(workspaceRootPath: tempRoot.path, instances: [config])
+    let store = BridgeStore(
+      fileManager: fileManager,
+      stateURLOverride: stateURL,
+      workspaceRootOverride: tempRoot,
+      initialStateOverride: state,
+      shouldStartHealthRefreshLoop: false
+    )
+
+    let instance = try XCTUnwrap(store.instances.first)
+
+    let didChange = try await store.saveConfiguration(
+      for: instance,
+      bridgeName: "marketing-site",
+      portOverride: "4500"
+    )
+
+    XCTAssertTrue(didChange)
+    XCTAssertEqual(instance.slug, "marketing-site")
+    XCTAssertEqual(instance.portOverride, "4500")
+    XCTAssertEqual(try store.resolvedConfiguration(for: instance).bridgePort, 4500)
+
+    let savedData = try Data(contentsOf: stateURL)
+    let savedState = try JSONDecoder().decode(BridgeManagerState.self, from: savedData)
+    XCTAssertEqual(savedState.instances.first?.slug, "marketing-site")
+    XCTAssertEqual(savedState.instances.first?.portOverride, "4500")
+  }
+
+  @MainActor
   func testDeleteRemovesGeneratedPluginAndLogDirectories() throws {
     let fileManager = FileManager.default
     let tempRoot = fileManager.temporaryDirectory

@@ -121,24 +121,6 @@ enum BridgeConnectionState: Equatable {
       return "Unavailable"
     }
   }
-
-  var guidance: String {
-    switch self {
-    case .idle:
-      return "Start the local bridge to make this MCP endpoint available."
-    case .checking:
-      return "Checking bridge health and Figma session status."
-    case .waitingForPlugin:
-      return "Bridge is ready. Open the matching Figma file and run this plugin instance."
-    case let .connected(details):
-      if let fileKey = details.fileKey, !fileKey.isEmpty {
-        return "Plugin connected. fileKey \(fileKey)"
-      }
-      return "Plugin connected. Local draft or unpublished file."
-    case let .unreachable(message):
-      return message
-    }
-  }
 }
 
 @MainActor

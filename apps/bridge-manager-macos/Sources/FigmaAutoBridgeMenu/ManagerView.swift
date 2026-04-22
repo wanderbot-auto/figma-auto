@@ -48,6 +48,8 @@ struct ManagerView: View {
   @State private var utilityFeedbackText: String?
   @State private var pendingDeleteInstanceID: UUID?
   @State private var bridgeNameDraft = ""
+  @State private var portDraft = ""
+  @State private var isSavingConfiguration = false
   @State private var saveFeedbackToken = UUID()
   @State private var utilityFeedbackToken = UUID()
 
@@ -77,20 +79,26 @@ struct ManagerView: View {
       }
     .onAppear {
       syncSelection()
-      syncBridgeNameDraft()
+      syncConfigurationDrafts()
       refreshLogEntries()
     }
     .onChange(of: store.instances.map(\.id)) { _ in
       syncSelection()
-      syncBridgeNameDraft()
+      syncConfigurationDrafts()
       refreshLogEntries()
     }
     .onChange(of: selectedInstanceID) { _ in
       isDetailsExpanded = false
       logFilter = ""
       logScope = .all
-      syncBridgeNameDraft()
+      syncConfigurationDrafts()
       refreshLogEntries()
+    }
+    .onChange(of: selectedInstance?.slug) { _ in
+      syncConfigurationDrafts()
+    }
+    .onChange(of: selectedInstance?.portOverride) { _ in
+      syncConfigurationDrafts()
     }
     .onChange(of: isLogsExpanded) { expanded in
       guard expanded else {
@@ -161,18 +169,10 @@ struct ManagerView: View {
   private var bridgeListCard: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .center, spacing: 12) {
-        VStack(alignment: .leading, spacing: 3) {
-          Text("Design File Mappings")
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(BridgePalette.text100)
-          Text(
-            store.instances.isEmpty
-              ? "Create your first bridge to start mapping files."
-              : "Select a bridge to expand details, controls, logs, and deletion."
-          )
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(BridgePalette.text200)
-        }
+        Label("Bridges", systemImage: "square.stack.3d.up")
+          .font(.system(size: 14, weight: .semibold))
+          .labelStyle(.titleAndIcon)
+          .foregroundStyle(BridgePalette.text100)
 
         Spacer(minLength: 0)
 
@@ -250,8 +250,9 @@ struct ManagerView: View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .center, spacing: 8) {
-          Text("Bridge Details")
+          Label("Bridge", systemImage: "point.3.connected.trianglepath.dotted")
             .font(.system(size: 11, weight: .semibold))
+            .labelStyle(.titleAndIcon)
             .foregroundStyle(BridgePalette.text200)
 
           MetaChip(text: instance.slug)
@@ -275,18 +276,6 @@ struct ManagerView: View {
           Spacer(minLength: 0)
 
           HStack(spacing: 6) {
-            if let resolved = selectedResolvedConfiguration {
-              Button {
-                if copyValue(resolved.mcpURL) {
-                  showUtilityFeedback("MCP URL copied")
-                }
-              } label: {
-                Image(systemName: "link")
-              }
-              .buttonStyle(ControlIconButtonStyle())
-              .help("Copy MCP URL")
-            }
-
             Button {
               toggleLogsDrawer()
             } label: {
@@ -318,21 +307,43 @@ struct ManagerView: View {
       expandedPanelDivider
 
       VStack(alignment: .leading, spacing: 10) {
-        Text("Mapping")
+        Label("Config", systemImage: "slider.horizontal.3")
           .font(.system(size: 11, weight: .semibold))
+          .labelStyle(.titleAndIcon)
           .foregroundStyle(BridgePalette.text200)
 
-        InspectorField(
-          title: "Bridge Name",
-          text: selectedBridgeNameBinding,
-          placeholder: "bridge-name",
-          validationMessage: selectedBridgeNameValidationMessage
-        )
+        HStack(alignment: .top, spacing: 10) {
+          InspectorField(
+            title: "Bridge Name",
+            text: selectedBridgeNameBinding,
+            placeholder: "bridge-name",
+            validationMessage: selectedBridgeNameValidationMessage
+          )
 
-        Text("Use lowercase letters, numbers, and hyphens only. This name is also used for the plugin folder and Figma file label.")
-          .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(BridgePalette.text200)
-          .fixedSize(horizontal: false, vertical: true)
+          InspectorField(
+            title: "Port",
+            text: selectedPortBinding,
+            placeholder: selectedPortPlaceholder,
+            width: 108,
+            validationMessage: selectedPortValidationMessage
+          )
+
+          Button {
+            saveConfigurationChanges()
+          } label: {
+            if isSavingConfiguration {
+              ProgressView()
+                .controlSize(.small)
+                .frame(width: 42)
+            } else {
+              Text("Save")
+                .frame(width: 42)
+            }
+          }
+          .buttonStyle(AppButtonStyle(kind: saveConfigurationButtonKind))
+          .disabled(isSaveDisabled)
+          .padding(.top, 22)
+        }
       }
       .padding(12)
 
@@ -347,8 +358,8 @@ struct ManagerView: View {
       expandedPanelDivider
 
       BridgeHealthCard(
-        title: healthTitle(for: instance),
-        message: healthGuidance(for: instance)
+        iconName: healthIconName(for: instance),
+        title: healthTitle(for: instance)
       )
       .padding(.horizontal, 12)
       .padding(.vertical, 12)
@@ -379,7 +390,7 @@ struct ManagerView: View {
         Image(systemName: "magnifyingglass")
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(BridgePalette.text300)
-        TextField("Filter log messages", text: $logFilter)
+        TextField("Filter", text: $logFilter)
           .textFieldStyle(.plain)
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(BridgePalette.text100)
@@ -396,10 +407,13 @@ struct ManagerView: View {
       )
 
       if !logFilter.isEmpty {
-        Button("Clear") {
+        Button {
           logFilter = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
         }
-        .buttonStyle(AppButtonStyle(kind: .ghost))
+        .buttonStyle(ControlIconButtonStyle())
+        .help("Clear filter")
       }
 
       Spacer(minLength: 0)
@@ -414,8 +428,9 @@ struct ManagerView: View {
       }
       .buttonStyle(FilterChipStyle(isSelected: logScope == .error))
 
-      Text("\(filteredLogEntries.count) entries")
+      Label("\(filteredLogEntries.count)", systemImage: "doc.text")
         .font(.system(size: 11, weight: .semibold))
+        .labelStyle(.titleAndIcon)
         .foregroundStyle(BridgePalette.text200)
     }
   }
@@ -423,23 +438,30 @@ struct ManagerView: View {
   private var logsDrawer: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .center, spacing: 10) {
-        Text("Live Logs")
+        Label("Logs", systemImage: "text.alignleft")
           .font(.system(size: 12, weight: .semibold))
+          .labelStyle(.titleAndIcon)
           .foregroundStyle(BridgePalette.text100)
 
         Spacer(minLength: 0)
 
         if let selectedInstance {
-          Button("Open File") {
+          Button {
             store.openLogs(for: selectedInstance)
+          } label: {
+            Image(systemName: "folder")
           }
-          .buttonStyle(AppButtonStyle(kind: .ghostCompact))
+          .buttonStyle(ControlIconButtonStyle())
+          .help("Open log file")
         }
 
-        Button("Hide") {
+        Button {
           isLogsExpanded = false
+        } label: {
+          Image(systemName: "xmark")
         }
-        .buttonStyle(AppButtonStyle(kind: .ghostCompact))
+        .buttonStyle(ControlIconButtonStyle())
+        .help("Hide logs")
       }
 
       logControls
@@ -456,13 +478,14 @@ struct ManagerView: View {
             .fill(BridgePalette.success100)
             .frame(width: 8, height: 8)
 
-          Text("Live Bridge Log")
+          Label("Stream", systemImage: "waveform")
             .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .labelStyle(.titleAndIcon)
             .foregroundStyle(BridgePalette.logHeader)
 
           Spacer(minLength: 0)
 
-          Text("refreshing every 1.2s")
+          Text("\(filteredLogEntries.count)")
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(BridgePalette.logMuted)
         }
@@ -503,27 +526,29 @@ struct ManagerView: View {
   private var detailsDrawer: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        Text("Instance Details")
+        Label("Paths", systemImage: "link")
           .font(.system(size: 12, weight: .semibold))
+          .labelStyle(.titleAndIcon)
           .foregroundStyle(BridgePalette.text100)
 
         Spacer(minLength: 0)
 
-        Button("Hide") {
+        Button {
           isDetailsExpanded = false
+        } label: {
+          Image(systemName: "xmark")
         }
-        .buttonStyle(AppButtonStyle(kind: .ghostCompact))
+        .buttonStyle(ControlIconButtonStyle())
+        .help("Hide paths")
       }
 
       ScrollView {
         VStack(alignment: .leading, spacing: 10) {
           if let resolved = selectedResolvedConfiguration {
-            let selectedInstance = self.selectedInstance
-
             FileDetailRow(
-              title: "MCP URL",
+              iconName: "link",
+              title: "MCP",
               value: resolved.mcpURL,
-              copyAction: { copyValue(resolved.mcpURL) },
               openAction: {
                 if let url = URL(string: resolved.mcpURL) {
                   NSWorkspace.shared.open(url)
@@ -532,31 +557,9 @@ struct ManagerView: View {
             )
 
             FileDetailRow(
-              title: "Client Config",
-              value: "url = \"\(resolved.mcpURL)\"",
-              copyAction: { copyValue("url = \"\(resolved.mcpURL)\"") },
-              openAction: {
-                if copyValue("url = \"\(resolved.mcpURL)\"") {
-                  showUtilityFeedback("Config copied")
-                }
-              }
-            )
-
-            FileDetailRow(
-              title: "Manifest",
-              value: resolved.manifestURL.path,
-              copyAction: { copyValue(resolved.manifestURL.path) },
-              openAction: {
-                if let selectedInstance {
-                  store.openManifest(for: selectedInstance)
-                }
-              }
-            )
-
-            FileDetailRow(
+              iconName: "doc.text",
               title: "Bridge Log",
               value: resolved.bridgeLogURL.path,
-              copyAction: { copyValue(resolved.bridgeLogURL.path) },
               openAction: {
                 if let selectedInstance {
                   store.openLogs(for: selectedInstance)
@@ -565,23 +568,12 @@ struct ManagerView: View {
             )
 
             FileDetailRow(
+              iconName: "doc.text.magnifyingglass",
               title: "Audit Log",
               value: resolved.auditLogURL.path,
-              copyAction: { copyValue(resolved.auditLogURL.path) },
               openAction: {
                 if let selectedInstance {
                   store.openAuditLog(for: selectedInstance)
-                }
-              }
-            )
-
-            FileDetailRow(
-              title: "Plugin Files",
-              value: resolved.pluginDistURL.path,
-              copyAction: { copyValue(resolved.pluginDistURL.path) },
-              openAction: {
-                if let selectedInstance {
-                  store.openPluginFolder(for: selectedInstance)
                 }
               }
             )
@@ -607,10 +599,6 @@ struct ManagerView: View {
                     .stroke(BridgePalette.border, lineWidth: 1)
                 )
             )
-          } else {
-            Text("Select a valid instance to inspect manifest, logs, audit output, and plugin files.")
-              .font(.system(size: 11, weight: .medium))
-              .foregroundStyle(BridgePalette.text200)
           }
         }
       }
@@ -619,14 +607,10 @@ struct ManagerView: View {
   }
 
   private var logEmptyState: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text("No matching log entries")
-        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-        .foregroundStyle(BridgePalette.logHeader)
-      Text("Try a different filter or wait for the selected bridge to write to its log.")
-        .font(.system(size: 11, weight: .medium, design: .monospaced))
-        .foregroundStyle(BridgePalette.logMuted)
-    }
+    Label("No Logs", systemImage: "doc.text")
+      .font(.system(size: 12, weight: .semibold, design: .monospaced))
+      .foregroundStyle(BridgePalette.logHeader)
+      .labelStyle(.titleAndIcon)
     .padding(18)
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -636,10 +620,15 @@ struct ManagerView: View {
       get: { bridgeNameDraft },
       set: { newValue in
         bridgeNameDraft = newValue
-        if BridgeConfigurationResolver.isValidBridgeName(newValue) {
-          selectedInstance?.updateBridgeName(newValue)
-        }
-        noteEdited()
+      }
+    )
+  }
+
+  private var selectedPortBinding: Binding<String> {
+    Binding(
+      get: { portDraft },
+      set: { newValue in
+        portDraft = newValue
       }
     )
   }
@@ -677,13 +666,57 @@ struct ManagerView: View {
       return "Bridge name is required."
     }
     if !BridgeConfigurationResolver.isValidBridgeName(trimmed) {
-      return "Use lowercase letters, numbers, and hyphens only, for example bridge-name."
+      return "Use kebab-case."
     }
     return nil
   }
 
+  private var selectedPortValidationMessage: String? {
+    let trimmed = portDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      return nil
+    }
+    guard let port = Int(trimmed) else {
+      return "Use 1-65535."
+    }
+    guard (1...65535).contains(port) else {
+      return "Use 1-65535."
+    }
+    return nil
+  }
+
+  private var selectedPortPlaceholder: String {
+    if let resolved = selectedResolvedConfiguration {
+      return String(resolved.bridgePort)
+    }
+    return "4318"
+  }
+
   private var hasValidationError: Bool {
-    selectedBridgeNameValidationMessage != nil
+    selectedBridgeNameValidationMessage != nil || selectedPortValidationMessage != nil
+  }
+
+  private var hasPendingConfigurationChanges: Bool {
+    guard let selectedInstance else {
+      return false
+    }
+
+    let bridgeName = bridgeNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    let portOverride = portDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    let currentPortOverride = selectedInstance.portOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+    return bridgeName != selectedInstance.slug || portOverride != currentPortOverride
+  }
+
+  private var isSaveDisabled: Bool {
+    guard let selectedInstance else {
+      return true
+    }
+
+    return isSavingConfiguration || selectedInstance.status.isBusy || !hasPendingConfigurationChanges || hasValidationError
+  }
+
+  private var saveConfigurationButtonKind: AppButtonStyle.Kind {
+    hasPendingConfigurationChanges ? .primary : .secondary
   }
 
   private var pendingDeleteInstance: BridgeInstance? {
@@ -705,11 +738,10 @@ struct ManagerView: View {
   }
 
   private var deleteConfirmationMessage: String {
-    guard let pendingDeleteInstance else {
-      return "This bridge will be removed from the mappings list, along with its generated plugin files and logs."
+    if let slug = pendingDeleteInstance?.slug, !slug.isEmpty {
+      return "Delete \(slug)?"
     }
-
-    return "Remove \(pendingDeleteInstance.slug.isEmpty ? "this bridge" : pendingDeleteInstance.slug) from the mappings list? Running processes will be stopped first, and its generated plugin folder plus log folder will be deleted."
+    return "Delete bridge and files?"
   }
 
   private var cardBackground: some View {
@@ -744,8 +776,9 @@ struct ManagerView: View {
     selectedInstanceID = store.instances.first?.id
   }
 
-  private func syncBridgeNameDraft() {
+  private func syncConfigurationDrafts() {
     bridgeNameDraft = selectedInstance?.slug ?? ""
+    portDraft = selectedInstance?.portOverride ?? ""
   }
 
   private func toggle(_ instance: BridgeInstance) {
@@ -806,49 +839,41 @@ struct ManagerView: View {
     case .running:
       return instance.connectionState.badgeTitle
     case .building:
-      return "Building plugin assets"
-    case .starting:
-      return "Starting local bridge"
-    case .stopping:
-      return "Stopping local bridge"
-    case .stopped:
-      return "Bridge stopped"
-    case .failed:
-      return "Needs attention"
-    }
-  }
-
-  private func healthGuidance(for instance: BridgeInstance) -> String {
-    switch instance.status {
-    case .running:
-      return instance.connectionState.guidance
-    case .building:
-      return "Preparing the bundled manifest and bridge assets for this design file."
-    case .starting:
-      return "Starting the local bridge process. The MCP URL will work once the bridge turns ready."
-    case .stopping:
-      return "Waiting for the bridge process to exit cleanly."
-    case .stopped:
-      return "Start this instance, then open the matching Figma file and run its plugin."
-    case let .failed(message):
-      return message
-    }
-  }
-
-  private func healthLabel(for status: BridgeRuntimeStatus) -> String {
-    switch status {
-    case .running:
-      return "Healthy"
-    case .building:
       return "Building"
     case .starting:
       return "Starting"
     case .stopping:
       return "Stopping"
     case .stopped:
-      return "Inactive"
+      return "Stopped"
     case .failed:
       return "Failed"
+    }
+  }
+
+  private func healthIconName(for instance: BridgeInstance) -> String {
+    switch instance.status {
+    case .running:
+      switch instance.connectionState {
+      case .connected:
+        return "checkmark.circle.fill"
+      case .waitingForPlugin:
+        return "play.circle.fill"
+      case .checking:
+        return "clock.circle.fill"
+      case .idle, .unreachable:
+        return "exclamationmark.circle.fill"
+      }
+    case .building:
+      return "hammer.circle.fill"
+    case .starting:
+      return "play.circle.fill"
+    case .stopping:
+      return "stop.circle.fill"
+    case .stopped:
+      return "pause.circle.fill"
+    case .failed:
+      return "exclamationmark.triangle.fill"
     }
   }
 
@@ -940,8 +965,33 @@ struct ManagerView: View {
     }
   }
 
-  private func noteEdited() {
-    showSaveFeedback(selectedBridgeNameValidationMessage == nil ? "Saved!" : "Needs attention")
+  private func saveConfigurationChanges() {
+    guard let selectedInstance, !isSaveDisabled else {
+      return
+    }
+
+    let wasRunning = selectedInstance.status.isRunning
+    isSavingConfiguration = true
+    Task {
+      do {
+        _ = try await store.saveConfiguration(
+          for: selectedInstance,
+          bridgeName: bridgeNameDraft,
+          portOverride: portDraft
+        )
+        await MainActor.run {
+          isSavingConfiguration = false
+          syncConfigurationDrafts()
+          showSaveFeedback(wasRunning ? "Saved + restarted" : "Saved!")
+        }
+      } catch {
+        await MainActor.run {
+          isSavingConfiguration = false
+          showUtilityFeedback(error.localizedDescription)
+          showSaveFeedback("Needs attention")
+        }
+      }
+    }
   }
 
   private func showSaveFeedback(_ text: String) {
@@ -964,11 +1014,6 @@ struct ManagerView: View {
         utilityFeedbackText = nil
       }
     }
-  }
-
-  private func copyValue(_ value: String) -> Bool {
-    NSPasteboard.general.clearContents()
-    return NSPasteboard.general.setString(value, forType: .string)
   }
 
   private func fallbackEntries(for instance: BridgeInstance) -> [BridgeLogEntry] {
@@ -1092,11 +1137,6 @@ private struct BridgeRow: View {
         Text(instance.slug.isEmpty ? "Untitled Bridge" : instance.slug)
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(BridgePalette.text100)
-          .lineLimit(1)
-
-        Text(instance.slug.isEmpty ? "Name this bridge to generate its plugin folder." : "Plugin folder: \(instance.slug)")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(BridgePalette.text200)
           .lineLimit(1)
       }
 
@@ -1364,16 +1404,9 @@ private struct EmptyBridgeState: View {
               .foregroundStyle(BridgePalette.primary100)
           }
 
-        VStack(alignment: .leading, spacing: 4) {
-          Text("No bridges yet")
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(BridgePalette.text100)
-
-          Text("Add a bridge to manage a local runtime and file mapping.")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(BridgePalette.text200)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+        Text("No Bridges")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(BridgePalette.text100)
       }
 
       Button {
@@ -1426,29 +1459,25 @@ private struct MetaChip: View {
 }
 
 private struct BridgeHealthCard: View {
+  let iconName: String
   let title: String
-  let message: String
 
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
+    HStack(spacing: 10) {
       RoundedRectangle(cornerRadius: 9, style: .continuous)
         .fill(BridgePalette.primarySoft)
         .frame(width: 28, height: 28)
         .overlay {
-          Image(systemName: "waveform.path.ecg")
+          Image(systemName: iconName)
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(BridgePalette.primary100)
         }
 
-      VStack(alignment: .leading, spacing: 5) {
-        Text(title)
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(BridgePalette.text100)
-        Text(message)
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(BridgePalette.text200)
-          .fixedSize(horizontal: false, vertical: true)
-      }
+      Text(title)
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(BridgePalette.text100)
+
+      Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -1496,29 +1525,20 @@ private struct NoticePill: View {
 }
 
 private struct FileDetailRow: View {
+  let iconName: String
   let title: String
   let value: String
-  let copyAction: () -> Bool
   let openAction: () -> Void
-
-  @State private var copyButtonLabel = "Copy"
-  @State private var copyFeedbackToken = UUID()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(alignment: .firstTextBaseline, spacing: 10) {
-        Text(title)
+        Label(title, systemImage: iconName)
           .font(.system(size: 10, weight: .semibold))
+          .labelStyle(.titleAndIcon)
           .foregroundStyle(BridgePalette.text200)
 
         Spacer(minLength: 0)
-
-        Button(copyButtonLabel) {
-          if copyAction() {
-            showCopiedFeedback()
-          }
-        }
-        .buttonStyle(InlineTextActionStyle())
 
         Button("Open") {
           openAction()
@@ -1541,19 +1561,8 @@ private struct FileDetailRow: View {
         .overlay(
           RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(BridgePalette.border, lineWidth: 1)
-        )
+      )
     )
-  }
-
-  private func showCopiedFeedback() {
-    copyButtonLabel = "Copied!"
-    let current = UUID()
-    copyFeedbackToken = current
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-      if copyFeedbackToken == current {
-        copyButtonLabel = "Copy"
-      }
-    }
   }
 }
 
